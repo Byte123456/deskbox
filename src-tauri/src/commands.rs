@@ -118,7 +118,8 @@ pub fn collect_all(block_id: Option<String>) -> Result<serde_json::Value, String
         let lnk_info = item.lnk_info.clone();
         let name = item.name.clone();
         let item_type = item.item_type.clone();
-        let icon_base64 = extract_icon_for_item(&item_path, &item_type, &lnk_info);
+        // Reuse icon from desktop scan instead of re-extracting
+        let icon_base64 = item.icon_base64.clone();
 
         match storage::collect_item(&item.path) {
             Ok(storage_path) => {
@@ -165,15 +166,21 @@ pub fn restore_item(block_id: String, item_id: String) -> Result<(), String> {
                 } else {
                     // Put item back
                     let mut config2 = AppConfig::load();
-                    let block = config2.blocks.iter_mut().find(|b| b.id == block_id).unwrap();
-                    block.items.push(item.clone());
-                    config2.save().ok();
+                    if let Some(block) = config2.blocks.iter_mut().find(|b| b.id == block_id) {
+                        block.items.push(item.clone());
+                        if let Err(e) = config2.save() {
+                            logger::error(&format!("恢复物品到配置失败: {e}"));
+                        }
+                    }
                     Err("无法启动管理员权限。请以管理员身份运行 DeskBox 后再试。".to_string())
                 }
             } else {
-                let block = config.blocks.iter_mut().find(|b| b.id == block_id).unwrap();
-                block.items.push(item.clone());
-                config.save().ok();
+                if let Some(block) = config.blocks.iter_mut().find(|b| b.id == block_id) {
+                    block.items.push(item.clone());
+                    if let Err(e) = config.save() {
+                        logger::error(&format!("恢复物品到配置失败: {e}"));
+                    }
+                }
                 Err(format!("还原失败: {e}"))
             }
         }
@@ -377,6 +384,44 @@ pub fn open_file(path: String, args: Option<String>, work_dir: Option<String>) -
     }
 }
 
+/// Scan for orphaned files in storage (not referenced by any config)
+#[tauri::command]
+pub fn scan_orphaned_files() -> Vec<String> {
+    let config = AppConfig::load();
+    let known: std::collections::HashSet<String> = config.blocks.iter()
+        .flat_map(|b| b.items.iter().map(|i| i.storage_path.clone()))
+        .collect();
+
+    let storage_dir = storage::get_storage_dir();
+    let mut orphans = Vec::new();
+    if let Ok(entries) = std::fs::read_dir(&storage_dir) {
+        for entry in entries.flatten() {
+            let path = entry.path().to_string_lossy().to_string();
+            if !known.contains(&path) {
+                orphans.push(path);
+            }
+        }
+    }
+    orphans
+}
+
+/// Delete an orphaned file from storage
+#[tauri::command]
+pub fn delete_orphaned_file(path: String) -> Result<(), String> {
+    // Safety: only allow deletion within the storage directory
+    let storage_dir = storage::get_storage_dir();
+    let file_path = std::path::PathBuf::from(&path);
+    if !file_path.starts_with(&storage_dir) {
+        return Err("不在存储目录中".to_string());
+    }
+    if file_path.exists() {
+        std::fs::remove_file(&file_path)
+            .or_else(|_| std::fs::remove_dir_all(&file_path))
+            .map_err(|e| format!("删除失败: {e}"))?;
+    }
+    Ok(())
+}
+
 /// Read recent log entries (for debug panel)
 #[tauri::command]
 pub fn read_log() -> String {
@@ -454,7 +499,6 @@ pub fn restore_block(block_id: String) -> Result<serde_json::Value, String> {
             Ok(()) => { restored += 1; }
             Err(_) if item.original_path.contains("Public\\Desktop") => {
                 need_elevation.push((item.storage_path.clone(), item.original_path.clone()));
-                restored += 1; // Will be handled by elevated process
             }
             Err(e) => { logger::error(&format!("还原失败: {} ({})", item.name, e)); }
         }

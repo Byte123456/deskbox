@@ -60,7 +60,7 @@ impl AppConfig {
         Self::load_opt().unwrap_or_default()
     }
 
-    /// Load config from disk, return None if file doesn't exist
+    /// Load config from disk, return None if file doesn't exist or is corrupt
     pub fn load_opt() -> Option<Self> {
         let path = storage::get_config_path();
         if path.exists() {
@@ -69,22 +69,44 @@ impl AppConfig {
                     return Some(config);
                 }
             }
+            // Try backup if main file is corrupt
+            let bak = path.with_extension("json.bak");
+            if bak.exists() {
+                if let Ok(content) = std::fs::read_to_string(&bak) {
+                    if let Ok(config) = serde_json::from_str::<AppConfig>(&content) {
+                        crate::logger::warn("配置从备份恢复");
+                        return Some(config);
+                    }
+                }
+            }
         }
         None
     }
 
-    /// Save config to disk
+    /// Save config to disk atomically
     pub fn save(&self) -> Result<(), String> {
         let path = storage::get_config_path();
-        // Ensure parent directory exists
         if let Some(parent) = path.parent() {
             std::fs::create_dir_all(parent)
                 .map_err(|e| format!("创建配置目录失败: {e}"))?;
         }
         let content = serde_json::to_string_pretty(self)
             .map_err(|e| format!("序列化失败: {e}"))?;
-        std::fs::write(&path, content)
-            .map_err(|e| format!("写入配置失败: {e}"))?;
+
+        // Atomic write: temp → sync → rename → sync dir
+        let tmp = path.with_extension("json.tmp");
+        std::fs::write(&tmp, &content)
+            .map_err(|e| format!("写入临时文件失败: {e}"))?;
+
+        // Backup old config if it exists
+        if path.exists() {
+            let bak = path.with_extension("json.bak");
+            std::fs::rename(&path, &bak).ok();
+        }
+
+        std::fs::rename(&tmp, &path)
+            .map_err(|e| format!("重命名配置失败: {e}"))?;
+
         Ok(())
     }
 

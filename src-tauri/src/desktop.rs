@@ -92,38 +92,25 @@ pub fn scan_directory(dir: &PathBuf) -> Vec<DesktopItem> {
             _ => None,
         };
 
-        // Get icon as base64
-        let icon_base64 = if item_type == "shortcut" || item_type == "url" {
-            // For shortcuts, extract icon from the target file
-            if let Some(ref info) = lnk_info {
-                let icon_path = if info.icon_location.is_empty() {
-                    &info.target_path
+        // Get icon as base64 — try cache first
+        let icon_base64 = {
+            let mtime = lnk::file_mtime(&path);
+            let path_str = path.to_string_lossy().to_string();
+
+            // Try cache
+            if let Some(ref mt) = mtime {
+                if let Some(cached) = lnk::get_cached_icon(&path_str, *mt) {
+                    Some(cached)
                 } else {
-                    &info.icon_location
-                };
-                if !icon_path.is_empty() {
-                    lnk::extract_icon_base64(icon_path, info.icon_index, true).ok()
-                } else {
-                    // Generic icon for items without a specific icon
-                    get_fallback_icon(&item_type)
+                    let extracted = extract_icon_for_item_internal(&path, &item_type, &lnk_info);
+                    if let Some(ref icon) = extracted {
+                        lnk::set_cached_icon(&path_str, *mt, icon);
+                    }
+                    extracted
                 }
             } else {
-                get_fallback_icon(&item_type)
+                extract_icon_for_item_internal(&path, &item_type, &lnk_info)
             }
-        } else if item_type == "directory" {
-            // Use folder icon from shell32.dll
-            lnk::extract_icon_base64(
-                r"C:\Windows\System32\shell32.dll",
-                3,
-                true,
-            ).ok()
-        } else {
-            // Regular file - get its associated icon
-            lnk::extract_icon_base64(
-                &path.to_string_lossy(),
-                0,
-                true,
-            ).ok()
         };
 
         items.push(DesktopItem {
@@ -201,4 +188,23 @@ pub fn get_system_icons() -> Vec<DesktopItem> {
     }
 
     items
+}
+
+/// Internal: actually do the GDI icon extraction (no cache)
+fn extract_icon_for_item_internal(
+    path: &std::path::Path,
+    item_type: &str,
+    lnk_info: &Option<crate::lnk::LnkInfo>,
+) -> Option<String> {
+    if item_type == "shortcut" || item_type == "url" {
+        if let Some(ref info) = lnk_info {
+            let icon_path = if info.icon_location.is_empty() { &info.target_path } else { &info.icon_location };
+            if !icon_path.is_empty() {
+                return crate::lnk::extract_icon_base64(icon_path, info.icon_index, true).ok();
+            }
+        }
+    } else if item_type == "directory" {
+        return crate::lnk::extract_icon_base64(r"C:\Windows\System32\shell32.dll", 3, true).ok();
+    }
+    crate::lnk::extract_icon_base64(&path.to_string_lossy(), 0, true).ok()
 }

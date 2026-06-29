@@ -124,6 +124,39 @@ fn change_hotkey(app: tauri::AppHandle, hotkey_str: String) -> Result<String, St
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
+    // Single-instance: try to bind a TCP port to detect another instance
+    let single_instance_port: u16 = 19833;
+    match std::net::TcpListener::bind(("127.0.0.1", single_instance_port)) {
+        Ok(listener) => {
+            // First instance — spawn a thread to listen for wake-up signals
+            std::thread::spawn(move || {
+                listener.set_nonblocking(true).ok();
+                let mut buf = [0u8; 4];
+                loop {
+                    std::thread::sleep(std::time::Duration::from_millis(500));
+                    if let Ok((mut stream, _)) = listener.accept() {
+                        let _ = std::io::Read::read(&mut stream, &mut buf);
+                        // Signal received — need to show the window
+                        // We use a global flag file since we can't access Tauri handle here
+                        let flag = std::env::var("APPDATA")
+                            .map(|p| std::path::PathBuf::from(p).join("DeskBox/.wakeup"))
+                            .unwrap_or_else(|_| std::path::PathBuf::from("deskbox_wakeup"));
+                        std::fs::write(&flag, "1").ok();
+                    }
+                }
+            });
+        }
+        Err(_) => {
+            // Second instance — tell the first to wake up and exit
+            if let Ok(mut stream) = std::net::TcpStream::connect(("127.0.0.1", single_instance_port)) {
+                use std::io::Write;
+                let _ = stream.write_all(b"wake");
+                let _ = stream.flush();
+            }
+            std::process::exit(0);
+        }
+    }
+
     tauri::Builder::default()
         .plugin(tauri_plugin_global_shortcut::Builder::new().build())
         .plugin(tauri_plugin_shell::init())
@@ -132,6 +165,22 @@ pub fn run() {
         .plugin(tauri_plugin_autostart::Builder::default().build())
         .setup(|app| {
             logger::info("DeskBox 启动中...");
+            // Wakeup signal checker: if another instance signals us, show window
+            let wakeup_path = std::env::var("APPDATA")
+                .map(|p| std::path::PathBuf::from(p).join("DeskBox/.wakeup"))
+                .unwrap_or_else(|_| std::path::PathBuf::from("deskbox_wakeup"));
+            let app_handle = app.handle().clone();
+            std::thread::spawn(move || loop {
+                std::thread::sleep(std::time::Duration::from_millis(500));
+                if wakeup_path.exists() {
+                    let _ = std::fs::remove_file(&wakeup_path);
+                    if let Some(window) = app_handle.get_webview_window("main") {
+                        let _ = window.show();
+                        let _ = window.set_focus();
+                    }
+                }
+            });
+
             // --- 托盘菜单 ---
             let show_item = MenuItemBuilder::with_id("show", "显示/隐藏").build(app)?;
             let settings_item = MenuItemBuilder::with_id("settings", "设置").build(app)?;
@@ -216,6 +265,8 @@ pub fn run() {
             commands::get_blocks,
             commands::get_settings,
             commands::read_log,
+            commands::scan_orphaned_files,
+            commands::delete_orphaned_file,
             commands::save_settings,
             commands::rename_block,
             commands::rename_item,

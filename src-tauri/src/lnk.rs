@@ -182,7 +182,11 @@ pub fn extract_icon_base64(
             return Err("Icon not found".to_string());
         }
 
-        icon_handle_to_base64(shfi.hIcon, large)
+        let result = icon_handle_to_base64(shfi.hIcon, large);
+        // Release the HICON obtained from SHGetFileInfoW
+        use windows::Win32::UI::WindowsAndMessaging::DestroyIcon;
+        DestroyIcon(shfi.hIcon).ok();
+        result
     }
 }
 
@@ -348,4 +352,57 @@ pub fn get_display_name(path: &std::path::Path) -> String {
 fn wstr_to_string(buf: &[u16]) -> String {
     let end = buf.iter().position(|&c| c == 0).unwrap_or(buf.len());
     String::from_utf16_lossy(&buf[..end])
+}
+
+// ---- Icon Cache ----
+
+fn get_cache_dir() -> std::path::PathBuf {
+    std::env::var("APPDATA")
+        .map(std::path::PathBuf::from)
+        .unwrap_or_else(|_| std::path::PathBuf::from("."))
+        .join("DeskBox/icon_cache")
+}
+
+/// Make a cache key from file path + modification time
+fn cache_key(path: &str, mtime: u64) -> String {
+    use std::hash::{Hash, Hasher};
+    let mut h = std::collections::hash_map::DefaultHasher::new();
+    path.hash(&mut h);
+    mtime.hash(&mut h);
+    format!("{:016x}.png", h.finish())
+}
+
+/// Try to load an icon from cache. Returns base64 data URI if hit.
+pub fn get_cached_icon(path: &str, mtime: u64) -> Option<String> {
+    let cache_dir = get_cache_dir();
+    let key = cache_key(path, mtime);
+    let cache_path = cache_dir.join(&key);
+    if cache_path.exists() {
+        if let Ok(data) = std::fs::read(&cache_path) {
+            let b64 = base64::Engine::encode(&base64::engine::general_purpose::STANDARD, &data);
+            return Some(format!("data:image/png;base64,{}", b64));
+        }
+    }
+    None
+}
+
+/// Save an icon base64 data URI to cache
+pub fn set_cached_icon(path: &str, mtime: u64, base64_uri: &str) {
+    if let Some(comma) = base64_uri.find(',') {
+        let b64 = &base64_uri[comma + 1..];
+        if let Ok(data) = base64::Engine::decode(&base64::engine::general_purpose::STANDARD, b64) {
+            let cache_dir = get_cache_dir();
+            std::fs::create_dir_all(&cache_dir).ok();
+            let cache_path = cache_dir.join(cache_key(path, mtime));
+            std::fs::write(&cache_path, &data).ok();
+        }
+    }
+}
+
+/// Get file modification time as u64 seconds
+pub fn file_mtime(path: &std::path::Path) -> Option<u64> {
+    std::fs::metadata(path).ok()
+        .and_then(|m| m.modified().ok())
+        .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
+        .map(|d| d.as_secs())
 }
