@@ -1,0 +1,48 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <link rel="stylesheet" href="/src/styles/main.css" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>DeskBox</title>
+</head>
+<body>
+<div id="app">
+  <!-- 自定义标题栏（可拖拽） -->
+  <div class="titlebar" id="titlebar">
+    <span class="titlebar-title">📦 DeskBox</span>
+    <div class="titlebar-actions">
+      <button class="titlebar-btn" id="btn-min" title="最小化">─</button>
+      <button class="titlebar-btn" id="btn-close" title="关闭">✕</button>
+    </div>
+  </div>
+
+  <div class="deskbox-container">
+    <!-- 路径/状态栏 -->
+    <div class="paths-bar" id="paths-bar"></div>
+
+    <!-- 主内容 -->
+    <main class="icon-grid" id="icon-grid">
+      <div class="loading-state" id="loading-state">
+        <div class="spinner"></div><p>加载中...</p>
+      </div>
+    </main>
+  </div>
+
+  <!-- 创建方块弹窗 -->
+  <div class="modal-overlay" id="modal-overlay" style="display:none">
+    <div class="modal">
+      <h3>新建方块</h3>
+      <input type="text" id="modal-name" placeholder="方块名称" maxlength="20">
+      <div class="modal-colors" id="modal-colors"></div>
+      <div class="modal-icons" id="modal-icons"></div>
+      <div class="modal-actions">
+        <button class="btn-secondary" id="modal-cancel">取消</button>
+        <button class="btn-primary" id="modal-confirm">创建</button>
+      </div>
+    </div>
+  </div>
+</div>
+<script type="module" src="/src/main.ts"></script>
+</body>
+</html>

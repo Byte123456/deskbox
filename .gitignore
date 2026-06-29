@@ -1,0 +1,27 @@
+# Dependencies
+node_modules/
+
+# Rust build
+src-tauri/target/
+
+# Frontend build output
+frontend-dist/
+dist/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Logs
+*.log
+
+# Environment
+.env
+.env.local
