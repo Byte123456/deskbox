@@ -34,6 +34,12 @@ export async function showSettingsView(): Promise<void> {
         <span style="font-size:12px">${label}</span>
         <label class="toggle"><input type="checkbox" class="gen-toggle" data-key="${k}" ${ck?'checked':''}><span class="toggle-slider"></span></label></div>`;
     }).join('')}
+
+    <div style="font-weight:700;font-size:14px;margin:12px 0 4px">🐛 调试</div>
+    <div style="padding:8px 12px;background:var(--glass-bg);border:1px solid var(--glass-border);border-radius:8px;margin:2px 0">
+      <button class="btn-secondary" id="btn-copy-log">📋 复制日志到剪贴板</button>
+      <span style="font-size:10px;color:var(--text-secondary);margin-left:8px">反馈 bug 时附上</span>
+    </div>
   </div>`;
 
   // Hotkey recorder
@@ -73,4 +79,13 @@ export async function showSettingsView(): Promise<void> {
       toast("已保存 ✓");
     };
   });
+
+  // Copy log button
+  document.getElementById("btn-copy-log")!.onclick = async () => {
+    try {
+      const log = await invoke<string>("read_log");
+      await navigator.clipboard.writeText(log);
+      toast("日志已复制到剪贴板 ✓");
+    } catch (e) { toast(`复制失败: ${e}`); }
+  };
 }
