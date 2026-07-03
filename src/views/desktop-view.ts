@@ -5,10 +5,22 @@ import { showDesktopCtxMenu } from "../components/context-menu";
 import { doCollectItem, doCollectAll } from "../actions/collect";
 import { openItem } from "../actions/items";
 import { showBlocksView } from "./blocks-view";
-import { h, e, emoji, getFallbackEmoji, showLoading, hideLoading, showError, toast } from "../utils";
+import { clearSearch } from "../components/search-bar";
+import { h, e, getFallbackEmoji, showLoading, hideLoading, showError, toast } from "../utils";
+
+async function doAutoOrganize(): Promise<void> {
+  if (desktopItems.length === 0) { toast("没有可整理的图标"); return; }
+  if (!confirm(`将对 ${desktopItems.length} 个桌面图标进行智能分类，未识别的将保留在桌面。确认？`)) return;
+  try {
+    const result = await invoke<any>("auto_organize");
+    toast(result.message);
+    showDesktopView();
+  } catch (e) { toast(`整理失败: ${e}`); }
+}
 
 export async function showDesktopView(): Promise<void> {
   (window as any).__view = "desktop";
+  clearSearch();
   showLoading();
   try {
     desktopItems.length = 0;
@@ -17,9 +29,11 @@ export async function showDesktopView(): Promise<void> {
     const blockCount = (await invoke<BlockPreview[]>("get_block_previews")).reduce((s, b) => s + b.item_count, 0);
     pathsBar.innerHTML = `桌面: ${desktopItems.length} 个 | 已收纳: ${blockCount} 个
       <span class="clickable" id="nav-blocks">📦 方块</span>
+      <span class="clickable" id="nav-auto-organize" style="color:var(--accent)">🤖 自动整理</span>
       <span class="clickable" id="nav-collect-all" style="color:var(--accent)">📥 全部收纳</span>`;
     renderDesktopItems();
     document.getElementById("nav-blocks")!.onclick = showBlocksView;
+    document.getElementById("nav-auto-organize")!.onclick = doAutoOrganize;
     document.getElementById("nav-collect-all")!.onclick = doCollectAll;
     if (firstLaunch && desktopItems.length > 0) {
       toast(`检测到 ${desktopItems.length} 个桌面图标，点击 📥 一键收纳`);

@@ -1,5 +1,5 @@
 {
-  "name": "deskbox",
+  "name": "deskbox-v2",
   "private": true,
   "version": "0.2.0",
   "type": "module",
@@ -20,6 +20,7 @@
     "@tauri-apps/plugin-shell": "^2",
     "@tauri-apps/plugin-dialog": "^2",
     "@tauri-apps/plugin-fs": "^2",
-    "@tauri-apps/plugin-autostart": "^2"
+    "@tauri-apps/plugin-autostart": "^2",
+    "pinyin-pro": "^3"
   }
 }

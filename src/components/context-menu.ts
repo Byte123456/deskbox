@@ -2,8 +2,9 @@ import { blockPreviews, blockState } from "../state";
 import { showBlockDetail } from "../views/block-detail";
 import { showBlocksView } from "../views/blocks-view";
 import { openStoredItem } from "../actions/items";
-import { doRestoreItem, doRestoreAllBlock, doDeleteItem, deleteBlock } from "../actions/blocks";
-import { openWith, openItem } from "../actions/items";
+import { doRestoreItem, doRestoreAllBlock, deleteBlock, moveToTrash } from "../actions/blocks";
+import { openWith, openItem, doCopyItem, doMoveItem } from "../actions/items";
+import { pushUndo } from "../actions/undo";
 import { h } from "../utils";
 
 let ctxCount = 0;
@@ -42,7 +43,18 @@ export function showBlockCtxMenu(x: number, y: number, blockId: string): void {
     menu.querySelector("[data-act=restore-all]")!.addEventListener("click", () => { doRestoreAllBlock(blockId); menu.remove(); });
     menu.querySelector("[data-act=rename]")!.addEventListener("click", async () => {
       const name = prompt("新名称", block.name);
-      if (name) { try { const { invoke } = await import("@tauri-apps/api/core"); await invoke("rename_block", { blockId, name }); showBlocksView(); } catch(e) { /* ignore */ } }
+      if (name) {
+        try {
+          const { invoke } = await import("@tauri-apps/api/core");
+          const oldName = block.name;
+          await invoke("rename_block", { blockId, name });
+          pushUndo({
+            type: "rename_block",
+            data: { blockId, oldName, newName: name },
+          });
+          showBlocksView();
+        } catch(e) { /* ignore */ }
+      }
       menu.remove();
     });
     menu.querySelector("[data-act=delete]")!.addEventListener("click", () => { deleteBlock(blockId); menu.remove(); });
@@ -53,15 +65,20 @@ export function showItemCtxMenu(x: number, y: number, blockId: string, itemId: s
   const item = blockState.current?.items.find(i => i.id === itemId);
   dmCtx(() => {
     let html = `<div class="ctx-item" data-act="open">▶ 打开</div>
+      <div class="ctx-item" data-act="copy">📋 复制到...</div>
+      <div class="ctx-item" data-act="move">📤 转移到...</div>
       <div class="ctx-item" data-act="restore">↩ 还原</div>
-      <div class="ctx-item" data-act="delete" style="color:var(--danger)">🗑 删除</div>`;
+      <div class="ctx-sep" style="height:1px;background:var(--glass-border);margin:2px 8px"></div>
+      <div class="ctx-item" data-act="trash" style="color:var(--danger)">🗑 移入回收站</div>`;
     if (item?.original_path) {
       html += `<div class="ctx-item" data-act="locate">📂 打开文件位置</div>`;
     }
     const menu = showMenu(x, y, html);
     menu.querySelector("[data-act=open]")!.addEventListener("click", () => { openStoredItem(blockId, itemId); menu.remove(); });
+    menu.querySelector("[data-act=copy]")!.addEventListener("click", () => { doCopyItem(blockId, itemId); menu.remove(); });
+    menu.querySelector("[data-act=move]")!.addEventListener("click", () => { doMoveItem(blockId, itemId); menu.remove(); });
     menu.querySelector("[data-act=restore]")!.addEventListener("click", () => { doRestoreItem(blockId, itemId); menu.remove(); });
-    menu.querySelector("[data-act=delete]")!.addEventListener("click", () => { doDeleteItem(blockId, itemId); menu.remove(); });
+    menu.querySelector("[data-act=trash]")!.addEventListener("click", () => { moveToTrash(blockId, itemId); menu.remove(); });
     menu.querySelector("[data-act=locate]")?.addEventListener("click", () => {
       const folder = item!.original_path.replace(/\\[^\\]*$/, "");
       openWith(folder); menu.remove();

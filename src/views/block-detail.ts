@@ -1,16 +1,19 @@
 import { invoke } from "@tauri-apps/api/core";
 import type { Block } from "../types";
-import { blockState, dragState, iconGrid, pathsBar, loadingState } from "../state";
+import { blockState, dragState, iconGrid, pathsBar, loadingState, batchSelected } from "../state";
 import { showBlocksView } from "./blocks-view";
 import { showItemCtxMenu } from "../components/context-menu";
 import { showColorPicker } from "../components/color-picker";
 import { openStoredItem } from "../actions/items";
-import { doRestoreItem, doRestoreAllBlock, doDeleteItem, deleteBlock } from "../actions/blocks";
+import { doRestoreItem, doRestoreAllBlock, moveToTrash, deleteBlock } from "../actions/blocks";
 import { handleBlockItemDrop } from "../actions/drag-drop";
-import { h, e, emoji, getFallbackEmoji, showLoading, hideLoading, showError, toast } from "../utils";
+import { pushUndo } from "../actions/undo";
+import { clearSearch } from "../components/search-bar";
+import { h, e, getFallbackEmoji, showLoading, hideLoading, showError, toast } from "../utils";
 
 export async function showBlockDetail(blockId: string): Promise<void> {
   (window as any).__view = "block-detail";
+  clearSearch();
   showLoading();
   try {
     const blocks = await invoke<Block[]>("get_blocks");
@@ -44,6 +47,13 @@ export function renderBlockDetail(): void {
         <button class="btn-mini btn-mini-danger" title="删除空方块" id="btn-delete-block">🗑</button>
       </div>
     </div>
+    <div id="batch-toolbar" style="display:none;gap:6px;padding:4px 0;font-size:11px">
+      <span id="batch-count"></span>
+      <button class="btn-mini btn-mini-danger" id="btn-batch-trash">🗑 批量回收</button>
+      <button class="btn-mini" id="btn-batch-restore">↩ 批量还原</button>
+      <span class="clickable" id="btn-batch-clear" style="color:var(--text-secondary)">取消选择</span>
+    </div>
+    <div class="restore-zone" id="restore-zone" style="display:none;text-align:center;padding:8px;border:2px dashed var(--danger);border-radius:8px;color:var(--danger);font-size:12px;margin:2px 0">↩ 拖到这里还原</div>
     <div class="block-detail-items">
       ${blockState.current.items.map(item => `
         <div class="icon-item stored-item" draggable="true" data-iid="${item.id}">
@@ -52,7 +62,7 @@ export function renderBlockDetail(): void {
           <div class="item-actions">
             <button class="btn-mini" data-act="open" data-iid="${item.id}">▶</button>
             <button class="btn-mini" data-act="restore" data-iid="${item.id}">↩</button>
-            <button class="btn-mini btn-mini-danger" data-act="delete" data-iid="${item.id}">✕</button>
+            <button class="btn-mini btn-mini-danger" data-act="trash" data-iid="${item.id}">🗑</button>
           </div>
         </div>`).join("")}
     </div>
@@ -60,11 +70,25 @@ export function renderBlockDetail(): void {
 
   // Inline rename block
   const nameEdit = document.getElementById("block-name-edit")!;
+  const oldBlockName = blockState.current!.name;
   nameEdit.addEventListener("keydown", (e) => { if (e.key === "Enter") { e.preventDefault(); nameEdit.blur(); } });
   nameEdit.addEventListener("blur", async () => {
     const newName = nameEdit.textContent?.trim();
     if (newName && newName !== blockState.current!.name) {
-      try { await invoke("rename_block", { blockId: blockState.current!.id, name: newName }); blockState.current!.name = newName; toast("已重命名 ✓"); }
+      try {
+        await invoke("rename_block", { blockId: blockState.current!.id, name: newName });
+        // 记录撤销操作
+        pushUndo({
+          type: "rename_block",
+          data: {
+            blockId: blockState.current!.id,
+            oldName: oldBlockName,
+            newName: newName,
+          },
+        });
+        blockState.current!.name = newName;
+        toast("已重命名 ✓");
+      }
       catch (err) { toast(`失败: ${err}`); nameEdit.textContent = blockState.current!.name; }
     }
   });
@@ -74,25 +98,68 @@ export function renderBlockDetail(): void {
   // Inline rename items
   iconGrid.querySelectorAll<HTMLElement>('.icon-name[contenteditable][data-field="name"]').forEach(el => {
     const iid = el.dataset.iid!;
+    const oldItem = blockState.current?.items.find(i => i.id === iid);
+    const oldName = oldItem?.name || "";
     el.addEventListener("keydown", (e) => { if (e.key === "Enter") { e.preventDefault(); el.blur(); } });
     el.addEventListener("blur", async () => {
       const newName = el.textContent?.trim();
-      const oldItem = blockState.current?.items.find(i => i.id === iid);
-      if (newName && oldItem && newName !== oldItem.name) {
-        try { await invoke("rename_item", { blockId: blockState.current!.id, itemId: iid, name: newName }); oldItem.name = newName; toast("已重命名 ✓"); }
-        catch (err) { toast(`失败: ${err}`); el.textContent = oldItem.name; }
+      const item = blockState.current?.items.find(i => i.id === iid);
+      if (newName && item && newName !== item.name) {
+        try {
+          await invoke("rename_item", { blockId: blockState.current!.id, itemId: iid, name: newName });
+          // 记录撤销操作
+          pushUndo({
+            type: "rename_item",
+            data: {
+              blockId: blockState.current!.id,
+              itemId: iid,
+              oldName: oldName,
+              newName: newName,
+            },
+          });
+          item.name = newName;
+          toast("已重命名 ✓");
+        }
+        catch (err) { toast(`失败: ${err}`); el.textContent = item.name; }
       }
     });
   });
 
   // Item events
-  iconGrid.querySelectorAll<HTMLElement>(".stored-item").forEach(el => {
-    el.addEventListener("dblclick", () => openStoredItem(blockState.current!.id, el.dataset.iid!));
-    el.addEventListener("contextmenu", (e) => { e.preventDefault(); showItemCtxMenu(e.clientX, e.clientY, blockState.current!.id, el.dataset.iid!); });
-    el.addEventListener("dragstart", () => { dragState.el = el; el.classList.add("dragging"); });
-    el.addEventListener("dragend", () => { el.classList.remove("dragging"); dragState.el = null; });
+  let lastClickedIdx = -1;
+  const items = iconGrid.querySelectorAll<HTMLElement>(".stored-item");
+  const restoreZone = document.getElementById("restore-zone")!;
+
+  items.forEach((el, idx) => {
+    const iid = el.dataset.iid!;
+    el.addEventListener("click", (e) => {
+      if (e.ctrlKey) {
+        if (batchSelected.has(iid)) batchSelected.delete(iid); else batchSelected.add(iid);
+      } else if (e.shiftKey && lastClickedIdx >= 0) {
+        const [a, b] = [Math.min(lastClickedIdx, idx), Math.max(lastClickedIdx, idx)];
+        items.forEach((el2, j) => { if (j >= a && j <= b) batchSelected.add(el2.dataset.iid!); });
+      } else {
+        batchSelected.clear();
+      }
+      lastClickedIdx = idx;
+      updateSelectionUI();
+    });
+    el.addEventListener("dblclick", () => openStoredItem(blockState.current!.id, iid));
+    el.addEventListener("contextmenu", (e) => { e.preventDefault(); showItemCtxMenu(e.clientX, e.clientY, blockState.current!.id, iid); });
+    el.addEventListener("dragstart", () => { dragState.el = el; el.classList.add("dragging"); restoreZone.style.display = "block"; });
+    el.addEventListener("dragend", () => { el.classList.remove("dragging"); dragState.el = null; restoreZone.style.display = "none"; });
     el.addEventListener("dragover", (e) => { e.preventDefault(); });
     el.addEventListener("drop", (e) => { e.preventDefault(); if (dragState.el && dragState.el !== el) handleBlockItemDrop(dragState.el, el); });
+  });
+
+  restoreZone.addEventListener("dragover", (e) => { e.preventDefault(); });
+  restoreZone.addEventListener("drop", (e) => {
+    e.preventDefault();
+    if (dragState.el) {
+      const iid = dragState.el.dataset.iid!;
+      doRestoreItem(blockState.current!.id, iid);
+    }
+    restoreZone.style.display = "none";
   });
 
   iconGrid.querySelectorAll<HTMLElement>("[data-act]").forEach(btn => {
@@ -101,7 +168,45 @@ export function renderBlockDetail(): void {
       const iid = btn.dataset.iid!;
       if (btn.dataset.act === "open") openStoredItem(blockState.current!.id, iid);
       else if (btn.dataset.act === "restore") doRestoreItem(blockState.current!.id, iid);
-      else if (btn.dataset.act === "delete") doDeleteItem(blockState.current!.id, iid);
+      else if (btn.dataset.act === "trash") moveToTrash(blockState.current!.id, iid);
     });
+  });
+
+  // Batch toolbar handlers
+  const batchBar = document.getElementById("batch-toolbar")!;
+  document.getElementById("btn-batch-trash")!.onclick = async () => {
+    if (!confirm(`将 ${batchSelected.size} 个图标移入回收站？`)) return;
+    const ids = [...batchSelected];
+    for (const iid of ids) {
+      await moveToTrash(blockState.current!.id, iid);
+    }
+    batchSelected.clear();
+    showBlockDetail(blockState.current!.id);
+  };
+  document.getElementById("btn-batch-restore")!.onclick = async () => {
+    if (!confirm(`还原 ${batchSelected.size} 个图标？`)) return;
+    const ids = [...batchSelected];
+    for (const iid of ids) {
+      await doRestoreItem(blockState.current!.id, iid);
+    }
+    batchSelected.clear();
+    showBlockDetail(blockState.current!.id);
+  };
+  document.getElementById("btn-batch-clear")!.onclick = () => { batchSelected.clear(); updateSelectionUI(); };
+  updateSelectionUI();
+}
+
+function updateSelectionUI(): void {
+  const batchBar = document.getElementById("batch-toolbar");
+  const batchCnt = document.getElementById("batch-count");
+  if (!batchBar || !batchCnt) return;
+  if (batchSelected.size > 0) {
+    batchBar.style.display = "flex";
+    batchCnt.textContent = `已选 ${batchSelected.size} 个`;
+  } else {
+    batchBar.style.display = "none";
+  }
+  document.querySelectorAll<HTMLElement>(".stored-item").forEach(el => {
+    el.classList.toggle("selected", batchSelected.has(el.dataset.iid!));
   });
 }

@@ -20,3 +20,34 @@ export interface BlockPreview {
   item_count: number;
   preview_items: { name: string; item_type: string; icon_base64: string | null }[];
 }
+
+// 撤销操作类型
+export type UndoActionType = 
+  | "collect_item"      // 收纳单个物品
+  | "restore_item"      // 还原单个物品
+  | "delete_item"       // 删除物品
+  | "rename_block"      // 重命名方块
+  | "rename_item"       // 重命名物品
+  | "create_block"      // 创建方块
+  | "delete_block"      // 删除方块
+  | "move_item"         // 移动物品
+  | "collect_all";      // 全部收纳
+
+export interface UndoAction {
+  type: UndoActionType;
+  data: any;
+  timestamp: number;
+}
+
+export interface TrashItem {
+  id: string; name: string; item_type: string;
+  original_path: string; storage_path: string;
+  icon_base64: string | null; collected_at: string;
+}
+
+export interface OrganizeRule {
+  category: string; emoji: string; color: string;
+  keywords: string[];
+}
+
+export type ThemeMode = "dark" | "light" | "auto";

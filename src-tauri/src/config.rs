@@ -1,7 +1,6 @@
 use crate::lnk::LnkInfo;
 use crate::storage;
 use serde::{Deserialize, Serialize};
-use std::path::PathBuf;
 
 /// Top-level application configuration
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -9,6 +8,10 @@ pub struct AppConfig {
     pub version: u32,
     pub blocks: Vec<Block>,
     pub settings: Settings,
+    #[serde(default)]
+    pub trash: Vec<StoredItem>,
+    #[serde(default)]
+    pub organize_rules: Vec<OrganizeRule>,
 }
 
 /// A "block" (navigation box) containing collected items
@@ -34,6 +37,15 @@ pub struct StoredItem {
     pub collected_at: String,
 }
 
+/// A user-customizable organize rule
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct OrganizeRule {
+    pub category: String,
+    pub emoji: String,
+    pub color: String,
+    pub keywords: Vec<String>,
+}
+
 /// Application settings
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Settings {
@@ -41,7 +53,11 @@ pub struct Settings {
     pub autostart: bool,
     pub animations: bool,
     pub always_on_top: bool,
+    #[serde(default = "default_theme")]
+    pub theme: String,
 }
+
+fn default_theme() -> String { "dark".to_string() }
 
 impl Default for Settings {
     fn default() -> Self {
@@ -50,6 +66,7 @@ impl Default for Settings {
             autostart: true,
             animations: true,
             always_on_top: true,
+            theme: "dark".to_string(),
         }
     }
 }
@@ -178,6 +195,8 @@ impl Default for AppConfig {
                 items: Vec::new(),
             }],
             settings: Settings::default(),
+            trash: Vec::new(),
+            organize_rules: Vec::new(),
         }
     }
 }

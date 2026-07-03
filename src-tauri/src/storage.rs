@@ -78,7 +78,7 @@ pub fn delete_stored_item(storage_path: &str) -> Result<(), String> {
 }
 
 /// Generate a unique path if the target already exists
-fn unique_path(path: &Path) -> PathBuf {
+pub fn unique_path(path: &Path) -> PathBuf {
     if !path.exists() {
         return path.to_path_buf();
     }

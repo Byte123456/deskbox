@@ -114,7 +114,7 @@ pub fn collect_all(block_id: Option<String>) -> Result<serde_json::Value, String
     let bid = block_id.unwrap_or_else(|| config.default_block().id.clone());
 
     for item in &items {
-        let item_path = std::path::PathBuf::from(&item.path);
+        let _item_path = std::path::PathBuf::from(&item.path);
         let lnk_info = item.lnk_info.clone();
         let name = item.name.clone();
         let item_type = item.item_type.clone();
@@ -455,6 +455,9 @@ pub fn save_settings(settings: serde_json::Value) -> Result<(), String> {
     if let Some(v) = settings.get("always_on_top") {
         config.settings.always_on_top = v.as_bool().unwrap_or(true);
     }
+    if let Some(v) = settings.get("theme") {
+        config.settings.theme = v.as_str().unwrap_or("dark").to_string();
+    }
     config.save()
 }
 
@@ -648,4 +651,170 @@ pub fn delete_block(block_id: String) -> Result<(), String> {
     }
     config.blocks.retain(|b| b.id != block_id);
     config.save()
+}
+
+/// Copy an item from one block to another (duplicates storage file)
+#[tauri::command]
+pub fn copy_item(from_block_id: String, item_id: String, to_block_id: String) -> Result<serde_json::Value, String> {
+    let mut config = AppConfig::load();
+
+    let source_item = {
+        let source_block = config.blocks.iter()
+            .find(|b| b.id == from_block_id)
+            .ok_or_else(|| format!("源方块不存在: {from_block_id}"))?;
+        source_block.items.iter()
+            .find(|i| i.id == item_id)
+            .ok_or_else(|| format!("物品不存在: {item_id}"))?
+            .clone()
+    };
+
+    let src_path = std::path::Path::new(&source_item.storage_path);
+    if !src_path.exists() {
+        return Err("存储文件不存在".to_string());
+    }
+
+    let storage_dir = storage::get_storage_dir();
+    let file_name = src_path.file_name()
+        .ok_or("无效路径")?
+        .to_string_lossy()
+        .to_string();
+    let dest_path = storage::unique_path(&storage_dir.join(&file_name));
+
+    if src_path.is_dir() {
+        copy_dir_recursive(src_path, &dest_path)?;
+    } else {
+        std::fs::copy(src_path, &dest_path)
+            .map_err(|e| format!("复制文件失败: {e}"))?;
+    }
+
+    let target_block = config.blocks.iter_mut()
+        .find(|b| b.id == to_block_id)
+        .ok_or_else(|| format!("目标方块不存在: {to_block_id}"))?;
+
+    let new_item = crate::config::StoredItem {
+        id: format!("item_{}", std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_nanos())
+            .unwrap_or(0)),
+        original_path: source_item.original_path.clone(),
+        storage_path: dest_path.to_string_lossy().to_string(),
+        name: source_item.name.clone(),
+        item_type: source_item.item_type.clone(),
+        lnk_info: source_item.lnk_info.clone(),
+        icon_base64: source_item.icon_base64.clone(),
+        collected_at: {
+            let secs = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_secs();
+            format!("{secs}")
+        },
+    };
+
+    logger::info(&format!("复制: {} → {}", source_item.name, target_block.name));
+    target_block.items.push(new_item.clone());
+    config.save()?;
+
+    Ok(serde_json::json!({
+        "id": new_item.id,
+        "name": new_item.name,
+    }))
+}
+
+fn copy_dir_recursive(src: &std::path::Path, dst: &std::path::Path) -> Result<(), String> {
+    std::fs::create_dir_all(dst).map_err(|e| format!("创建目录失败: {e}"))?;
+    let entries = std::fs::read_dir(src).map_err(|e| format!("读取目录失败: {e}"))?;
+    for entry in entries.flatten() {
+        let src_entry = entry.path();
+        let dst_entry = dst.join(src_entry.file_name().unwrap());
+        if src_entry.is_dir() {
+            copy_dir_recursive(&src_entry, &dst_entry)?;
+        } else {
+            std::fs::copy(&src_entry, &dst_entry)
+                .map_err(|e| format!("复制文件失败: {e}"))?;
+        }
+    }
+    Ok(())
+}
+
+// ---- Trash commands ----
+
+#[tauri::command]
+pub fn move_to_trash(block_id: String, item_id: String) -> Result<(), String> {
+    let mut config = AppConfig::load();
+    let item = config.remove_item(&block_id, &item_id)
+        .ok_or_else(|| format!("物品不存在: {item_id}"))?;
+    config.trash.push(item);
+    config.save()?;
+    logger::info(&format!("移至回收站: {}", item_id));
+    Ok(())
+}
+
+#[tauri::command]
+pub fn get_trash_items() -> Vec<serde_json::Value> {
+    AppConfig::load().trash.iter().map(|i| serde_json::json!({
+        "id": i.id, "name": i.name, "item_type": i.item_type,
+        "original_path": i.original_path, "storage_path": i.storage_path,
+        "icon_base64": i.icon_base64, "collected_at": i.collected_at,
+    })).collect()
+}
+
+#[tauri::command]
+pub fn restore_trash_item(item_id: String) -> Result<(), String> {
+    let mut config = AppConfig::load();
+    let pos = config.trash.iter().position(|i| i.id == item_id)
+        .ok_or_else(|| format!("回收站物品不存在: {item_id}"))?;
+    let item = config.trash.remove(pos);
+    let bid = config.blocks.first().map(|b| b.id.clone())
+        .unwrap_or_else(|| config.default_block().id.clone());
+    let block = config.blocks.iter_mut().find(|b| b.id == bid).unwrap();
+    block.items.push(item);
+    config.save()?;
+    Ok(())
+}
+
+#[tauri::command]
+pub fn delete_trash_item(item_id: String) -> Result<(), String> {
+    let mut config = AppConfig::load();
+    let pos = config.trash.iter().position(|i| i.id == item_id)
+        .ok_or_else(|| format!("回收站物品不存在: {item_id}"))?;
+    let item = config.trash.remove(pos);
+    storage::delete_stored_item(&item.storage_path)?;
+    config.save()?;
+    Ok(())
+}
+
+#[tauri::command]
+pub fn empty_trash() -> Result<serde_json::Value, String> {
+    let mut config = AppConfig::load();
+    let count = config.trash.len();
+    for item in &config.trash {
+        storage::delete_stored_item(&item.storage_path).ok();
+    }
+    config.trash.clear();
+    config.save()?;
+    Ok(serde_json::json!({ "cleared": count }))
+}
+
+// ---- Cache clean ----
+
+#[tauri::command]
+pub fn clean_icon_cache() -> Result<serde_json::Value, String> {
+    let cache_dir = storage::get_app_dir().join("icon_cache");
+    let mut freed: u64 = 0;
+    if cache_dir.exists() {
+        if let Ok(entries) = std::fs::read_dir(&cache_dir) {
+            for e in entries.flatten() {
+                if let Ok(meta) = e.metadata() {
+                    freed += meta.len();
+                }
+                let _ = std::fs::remove_file(e.path());
+                let _ = std::fs::remove_dir_all(e.path());
+            }
+        }
+    }
+    Ok(serde_json::json!({
+        "freed_mb": format!("{:.1}", freed as f64 / 1048576.0),
+        "message": format!("已清理 {} MB 图标缓存", format!("{:.1}", freed as f64 / 1048576.0)),
+    }))
 }

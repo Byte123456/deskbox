@@ -4,13 +4,16 @@ import { blockPreviews, dragState, iconGrid, pathsBar, loadingState } from "../s
 import { showBlockDetail } from "./block-detail";
 import { showDesktopView } from "./desktop-view";
 import { showSettingsView } from "./settings-view";
+import { showTrashView } from "./trash-view";
 import { showCreateBlockModal } from "../components/modal";
 import { showBlockCtxMenu } from "../components/context-menu";
 import { handleBlockCardDrop } from "../actions/drag-drop";
-import { h, e, emoji, getFallbackEmoji, showLoading, hideLoading, showError } from "../utils";
+import { h, e, getFallbackEmoji, showLoading, hideLoading, showError } from "../utils";
+import { clearSearch } from "../components/search-bar";
 
 export async function showBlocksView(): Promise<void> {
   (window as any).__view = "blocks";
+  clearSearch();
   showLoading();
   try {
     const previews = await invoke<BlockPreview[]>("get_block_previews");
@@ -19,9 +22,11 @@ export async function showBlocksView(): Promise<void> {
     const total = blockPreviews.reduce((s, b) => s + b.item_count, 0);
     pathsBar.innerHTML = `${blockPreviews.length} 个方块 | ${total} 个图标
       <span class="clickable" id="nav-desktop">🖥 桌面</span>
+      <span class="clickable" id="nav-trash">🗑</span>
       <span class="clickable" id="nav-settings">⚙</span>`;
     renderBlockCards();
     document.getElementById("nav-desktop")!.onclick = showDesktopView;
+    document.getElementById("nav-trash")!.onclick = showTrashView;
     document.getElementById("nav-settings")!.onclick = showSettingsView;
   } catch (e) { showError("加载失败", String(e)); }
 }

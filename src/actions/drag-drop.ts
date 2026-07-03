@@ -2,6 +2,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { dragState, blockPreviews, blockState } from "../state";
 import { showBlocksView } from "../views/blocks-view";
 import { showBlockDetail } from "../views/block-detail";
+import { pushUndo } from "./undo";
 import { toast } from "../utils";
 
 export async function handleBlockCardDrop(from: HTMLElement, to: HTMLElement): Promise<void> {
@@ -10,8 +11,12 @@ export async function handleBlockCardDrop(from: HTMLElement, to: HTMLElement): P
   const ids = blockPreviews.map(b => b.id);
   const fromIdx = ids.indexOf(fromBid), toIdx = ids.indexOf(toBid);
   if (fromIdx >= 0 && toIdx >= 0) {
+    const originalIds = [...ids];
     ids.splice(fromIdx, 1); ids.splice(toIdx, 0, fromBid);
-    try { await invoke("reorder_blocks", { blockIds: ids }); showBlocksView(); }
+    try {
+      await invoke("reorder_blocks", { blockIds: ids });
+      showBlocksView();
+    }
     catch (err) { toast(`排序失败: ${err}`); }
   }
 }
@@ -19,8 +24,25 @@ export async function handleBlockCardDrop(from: HTMLElement, to: HTMLElement): P
 export async function handleBlockItemDrop(from: HTMLElement, to: HTMLElement): Promise<void> {
   const fromIid = from.dataset.iid!, toIid = to.dataset.iid!;
   const toIdx = blockState.current!.items.findIndex(i => i.id === toIid);
+  const fromIdx = blockState.current!.items.findIndex(i => i.id === fromIid);
   try {
-    await invoke("move_item", { fromBlockId: blockState.current!.id, itemId: fromIid, toBlockId: blockState.current!.id, toIndex: toIdx });
+    await invoke("move_item", {
+      fromBlockId: blockState.current!.id,
+      itemId: fromIid,
+      toBlockId: blockState.current!.id,
+      toIndex: toIdx,
+    });
+    // 记录撤销操作
+    pushUndo({
+      type: "move_item",
+      data: {
+        fromBlockId: blockState.current!.id,
+        toBlockId: blockState.current!.id,
+        itemId: fromIid,
+        fromIndex: fromIdx,
+        toIndex: toIdx,
+      },
+    });
     showBlockDetail(blockState.current!.id);
   } catch (err) { toast(`移动失败: ${err}`); }
 }

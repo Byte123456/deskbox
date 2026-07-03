@@ -76,9 +76,13 @@ pub fn scan_directory(dir: &PathBuf) -> Vec<DesktopItem> {
     for entry in entries.flatten() {
         let path = entry.path();
 
-        // Skip hidden files (like desktop.ini)
+        // Skip hidden files and DeskBox shortcuts
         if let Some(name) = path.file_name().and_then(|n| n.to_str()) {
             if name.starts_with('.') || name == "desktop.ini" {
+                continue;
+            }
+            let lower = name.to_lowercase();
+            if lower.contains("deskbox") {
                 continue;
             }
         }

@@ -1,3 +1,5 @@
+mod auto_organize;
+mod backup;
 mod commands;
 mod config;
 mod desktop;
@@ -276,9 +278,21 @@ pub fn run() {
             commands::set_always_on_top,
             commands::move_item,
             commands::reorder_items,
+            commands::copy_item,
             commands::reorder_blocks,
             commands::create_block,
             commands::delete_block,
+            commands::move_to_trash,
+            commands::get_trash_items,
+            commands::restore_trash_item,
+            commands::delete_trash_item,
+            commands::empty_trash,
+            commands::clean_icon_cache,
+            auto_organize::auto_organize,
+            auto_organize::get_organize_rules,
+            auto_organize::save_organize_rules,
+            backup::export_backup,
+            backup::import_backup,
             system_icons::get_system_icons_state,
             system_icons::set_system_icon_visibility,
         ])

@@ -1,6 +1,7 @@
 import { invoke } from "@tauri-apps/api/core";
 import type { BlockPreview } from "../types";
 import { showBlocksView } from "../views/blocks-view";
+import { pushUndo } from "../actions/undo";
 import { toast, h, $ } from "../utils";
 
 const COLORS = ["#7c8cf8","#f87070","#70d6a0","#f0c040","#c070f0","#40c0e0","#f09060","#80c040"];
@@ -29,7 +30,22 @@ export function showCreateBlockModal(): void {
   $("modal-cancel").onclick = () => { mo.style.display = "none"; };
   $("modal-confirm").onclick = async () => {
     const name = ($("modal-name") as HTMLInputElement).value.trim() || "新方块";
-    try { await invoke("create_block", { name, color: selColor, icon: selIcon }); mo.style.display = "none"; toast("方块已创建 ✓"); showBlocksView(); }
+    try {
+      const result = await invoke<any>("create_block", { name, color: selColor, icon: selIcon });
+      // 记录撤销操作
+      pushUndo({
+        type: "create_block",
+        data: {
+          blockId: result.id,
+          name,
+          color: selColor,
+          icon: selIcon,
+        },
+      });
+      mo.style.display = "none";
+      toast("方块已创建 ✓");
+      showBlocksView();
+    }
     catch (err) { toast(`创建失败: ${err}`); }
   };
 }
