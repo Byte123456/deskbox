@@ -19,6 +19,38 @@ pub struct LnkInfo {
     pub description: String,
     pub icon_location: String,
     pub icon_index: i32,
+    #[serde(default)]
+    pub exe_name: String,
+    #[serde(default)]
+    pub product_name: String,
+    #[serde(default)]
+    pub company_name: String,
+    #[serde(default)]
+    pub file_description: String,
+}
+
+fn read_exe_metadata(target_path: &str) -> (String, String, String, String) {
+    let path = std::path::Path::new(target_path);
+    let exe_name = path.file_name().and_then(|v| v.to_str()).unwrap_or_default().to_string();
+    if !target_path.to_ascii_lowercase().ends_with(".exe") || !path.exists() {
+        return (exe_name, String::new(), String::new(), String::new());
+    }
+
+    // VersionInfo is embedded in the executable; this is fully offline. Using
+    // PowerShell avoids unsafe fixed-size Windows version-resource parsing.
+    let escaped = target_path.replace('\'', "''");
+    let script = format!(
+        "$v=(Get-Item -LiteralPath '{}').VersionInfo; @{{product_name=$v.ProductName;company_name=$v.CompanyName;file_description=$v.FileDescription}} | ConvertTo-Json -Compress",
+        escaped
+    );
+    let output = std::process::Command::new("powershell")
+        .args(["-NoProfile", "-NonInteractive", "-Command", &script])
+        .output();
+    let value = output.ok().filter(|o| o.status.success())
+        .and_then(|o| serde_json::from_slice::<serde_json::Value>(&o.stdout).ok())
+        .unwrap_or_default();
+    let field = |name: &str| value.get(name).and_then(|v| v.as_str()).unwrap_or_default().trim().to_string();
+    (exe_name, field("product_name"), field("company_name"), field("file_description"))
 }
 
 /// A desktop item displayed in the UI
@@ -90,6 +122,7 @@ fn parse_lnk_file(path: &std::path::Path) -> Result<LnkInfo, String> {
             (icon_location, icon_index)
         };
 
+        let (exe_name, product_name, company_name, file_description) = read_exe_metadata(&target_path);
         Ok(LnkInfo {
             target_path,
             arguments,
@@ -97,6 +130,10 @@ fn parse_lnk_file(path: &std::path::Path) -> Result<LnkInfo, String> {
             description,
             icon_location: icon_loc,
             icon_index: icon_idx,
+            exe_name,
+            product_name,
+            company_name,
+            file_description,
         })
     }
 }
@@ -132,6 +169,10 @@ fn parse_url_file(path: &std::path::Path) -> Result<LnkInfo, String> {
         description: String::new(),
         icon_location: icon_file,
         icon_index,
+        exe_name: String::new(),
+        product_name: String::new(),
+        company_name: String::new(),
+        file_description: String::new(),
     })
 }
 

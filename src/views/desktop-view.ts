@@ -14,8 +14,28 @@ async function doAutoOrganize(): Promise<void> {
   try {
     const result = await invoke<any>("auto_organize");
     toast(result.message);
+    if (result.suggestions?.length) showOrganizeSuggestions(result.suggestions);
     showDesktopView();
   } catch (e) { toast(`整理失败: ${e}`); }
+}
+
+function showOrganizeSuggestions(suggestions: any[]): void {
+  const overlay = document.createElement("div");
+  overlay.className = "modal-overlay";
+  overlay.style.zIndex = "350";
+  overlay.innerHTML = `<div class="modal" style="width:min(520px,90vw);max-height:75vh;overflow:auto">
+    <h3>这些项目没有自动移动</h3>
+    <p style="color:var(--text-secondary);font-size:12px">分数不够高或两个分类太接近。你手动收纳一次后，DeskBox 会记住选择。</p>
+    ${suggestions.map(s => `<div style="padding:9px 0;border-bottom:1px solid var(--glass-border)">
+      <div style="font-weight:600">${h(s.name)}</div>
+      <div style="font-size:11px;color:var(--text-secondary)">建议：${h(s.suggested_category || "未知")}${s.alternative_category ? ` / ${h(s.alternative_category)}` : ""} · ${h(s.status)} · 分数 ${s.score}</div>
+      <div style="font-size:10px;color:var(--text-secondary)">${h((s.reasons || []).join("；") || "没有可靠识别依据")}</div>
+    </div>`).join("")}
+    <div class="modal-actions" style="margin-top:10px"><button class="btn-secondary suggestion-close">保留在桌面</button></div>
+  </div>`;
+  document.body.appendChild(overlay);
+  overlay.querySelector(".suggestion-close")!.addEventListener("click", () => overlay.remove());
+  overlay.addEventListener("click", e => { if (e.target === overlay) overlay.remove(); });
 }
 
 export async function showDesktopView(): Promise<void> {

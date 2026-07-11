@@ -92,7 +92,15 @@ pub fn collect_item(path: String, block_id: Option<String>) -> Result<serde_json
 
     // Update config — use specified block or default
     let mut config = AppConfig::load();
+    let user_selected = block_id.is_some();
     let bid = block_id.unwrap_or_else(|| config.default_block().id.clone());
+    if user_selected {
+        if let (Some(info), Some(block)) = (&lnk_info, config.blocks.iter().find(|b| b.id == bid)) {
+            if let Some(identity) = crate::auto_organize::software_identity(info) {
+                config.user_overrides.insert(identity, block.name.clone());
+            }
+        }
+    }
     config.add_item(&bid, path, storage_path, name, item_type.to_string(), lnk_info, icon_base64);
     config.save()?;
 
@@ -585,6 +593,16 @@ pub fn move_item(
         .ok_or_else(|| format!("物品不存在: {item_id}"))?;
 
     // Add to destination block at the specified index
+    let target_name = config.blocks.iter().find(|b| b.id == to_block_id)
+        .map(|b| b.name.clone())
+        .ok_or_else(|| format!("目标方块不存在: {to_block_id}"))?;
+    if from_block_id != to_block_id {
+        if let Some(info) = &item.lnk_info {
+            if let Some(identity) = crate::auto_organize::software_identity(info) {
+                config.user_overrides.insert(identity, target_name);
+            }
+        }
+    }
     let target_block = config.blocks.iter_mut()
         .find(|b| b.id == to_block_id)
         .ok_or_else(|| format!("目标方块不存在: {to_block_id}"))?;

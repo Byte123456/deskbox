@@ -196,16 +196,20 @@ async function loadRulesEditor(): Promise<void> {
   const editor = document.getElementById("rules-editor"); if (!editor) return;
   try {
     const rules = await invoke<any[]>("get_organize_rules");
-    const rows = rules.map((r, i) => `
+    const rows = rules.map((r) => {
+      const identities = [...(r.exact_executables || []), ...(r.product_names || [])];
+      const hints = [...(r.strong_phrases || []), ...(r.weak_words || [])];
+      return `
       <div style="display:flex;align-items:center;gap:6px;padding:4px 0;border-bottom:1px solid var(--glass-border)">
         <span style="font-size:16px">${r.emoji}</span>
         <span style="width:60px;font-weight:600">${h(r.category)}</span>
-        <span style="flex:1;color:var(--text-secondary);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:10px">${h((r.keywords||[]).join(", "))}</span>
-        <span style="font-size:10px;color:var(--text-secondary)">${(r.keywords||[]).length} 词</span>
-      </div>`).join("");
+        <span style="flex:1;color:var(--text-secondary);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:10px">${h([...identities, ...hints].join(", "))}</span>
+        <span style="font-size:10px;color:var(--text-secondary)">${identities.length} 身份 / ${hints.length} 规则</span>
+      </div>`;
+    }).join("");
     editor.innerHTML = `
       <div style="margin-bottom:4px;color:var(--text-secondary)">
-        预设 ${rules.length} 个分类规则，在设置文件 <code>%APPDATA%\\DeskBox\\config.json</code> 中添加 <code>organize_rules</code> 字段可自定义
+        预设 ${rules.length} 个离线分类规则。软件身份、路径和短语会分别评分；手动分类记录在 <code>user_overrides</code> 中
       </div>
       <button class="btn-secondary" id="btn-reset-rules" style="margin:4px 0;font-size:11px">🔄 还原为预设规则</button>
       <div style="margin-top:6px">${rows}</div>`;

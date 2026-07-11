@@ -1,6 +1,8 @@
 export interface LnkInfo {
   target_path: string; arguments: string; working_dir: string;
   description: string; icon_location: string; icon_index: number;
+  exe_name: string; product_name: string; company_name: string;
+  file_description: string;
 }
 export interface DesktopItem {
   name: string; path: string; item_type: string;
@@ -47,7 +49,9 @@ export interface TrashItem {
 
 export interface OrganizeRule {
   category: string; emoji: string; color: string;
-  keywords: string[];
+  keywords?: string[]; exact_executables: string[]; product_names: string[];
+  path_patterns: string[]; strong_phrases: string[]; weak_words: string[];
+  exclude_phrases: string[];
 }
 
 export type ThemeMode = "dark" | "light" | "auto";

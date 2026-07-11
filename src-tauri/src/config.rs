@@ -1,6 +1,7 @@
 use crate::lnk::LnkInfo;
 use crate::storage;
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 
 /// Top-level application configuration
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -12,6 +13,8 @@ pub struct AppConfig {
     pub trash: Vec<StoredItem>,
     #[serde(default)]
     pub organize_rules: Vec<OrganizeRule>,
+    #[serde(default)]
+    pub user_overrides: HashMap<String, String>,
 }
 
 /// A "block" (navigation box) containing collected items
@@ -44,6 +47,18 @@ pub struct OrganizeRule {
     pub emoji: String,
     pub color: String,
     pub keywords: Vec<String>,
+    #[serde(default)]
+    pub exact_executables: Vec<String>,
+    #[serde(default)]
+    pub product_names: Vec<String>,
+    #[serde(default)]
+    pub path_patterns: Vec<String>,
+    #[serde(default)]
+    pub strong_phrases: Vec<String>,
+    #[serde(default)]
+    pub weak_words: Vec<String>,
+    #[serde(default)]
+    pub exclude_phrases: Vec<String>,
 }
 
 /// Application settings
@@ -197,6 +212,7 @@ impl Default for AppConfig {
             settings: Settings::default(),
             trash: Vec::new(),
             organize_rules: Vec::new(),
+            user_overrides: HashMap::new(),
         }
     }
 }
