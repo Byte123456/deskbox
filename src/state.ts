@@ -9,12 +9,12 @@ export const pathsBar = document.getElementById("paths-bar")!;
 export const iconGrid = document.getElementById("icon-grid")!;
 export const loadingState = document.getElementById("loading-state")!;
 
-// 搜索状态
+export const viewState = { current: "" as string };
+
 export const searchState = {
   query: "",
 };
 
-// 撤销/重做栈
 export const undoStack: UndoAction[] = [];
 export const redoStack: UndoAction[] = [];
 export const MAX_UNDO_STEPS = 10;
@@ -23,3 +23,15 @@ export const trashItems: TrashItem[] = [];
 export const organizeRules: OrganizeRule[] = [];
 export const batchSelected = new Set<string>();
 export const themeState = { current: "dark" as string };
+
+export let busyLock = false;
+export function setBusy(locked: boolean): void { busyLock = locked; }
+
+const MAX_RECENT = 5;
+export const recentItems: { name: string; blockId: string; itemId: string; icon: string | null }[] = [];
+export function pushRecent(item: { name: string; blockId: string; itemId: string; icon: string | null }): void {
+  const idx = recentItems.findIndex(i => i.itemId === item.itemId);
+  if (idx >= 0) recentItems.splice(idx, 1);
+  recentItems.unshift(item);
+  if (recentItems.length > MAX_RECENT) recentItems.length = MAX_RECENT;
+}

@@ -1,6 +1,6 @@
 import { invoke } from "@tauri-apps/api/core";
 import type { BlockPreview } from "../types";
-import { blockPreviews, dragState, iconGrid, pathsBar, loadingState } from "../state";
+import { blockPreviews, dragState, iconGrid, pathsBar, loadingState, viewState, recentItems } from "../state";
 import { showBlockDetail } from "./block-detail";
 import { showDesktopView } from "./desktop-view";
 import { showSettingsView } from "./settings-view";
@@ -8,11 +8,12 @@ import { showTrashView } from "./trash-view";
 import { showCreateBlockModal } from "../components/modal";
 import { showBlockCtxMenu } from "../components/context-menu";
 import { handleBlockCardDrop } from "../actions/drag-drop";
+import { openStoredItem } from "../actions/items";
 import { h, e, getFallbackEmoji, showLoading, hideLoading, showError } from "../utils";
 import { clearSearch } from "../components/search-bar";
 
 export async function showBlocksView(): Promise<void> {
-  (window as any).__view = "blocks";
+  viewState.current = "blocks";
   clearSearch();
   showLoading();
   try {
@@ -23,17 +24,42 @@ export async function showBlocksView(): Promise<void> {
     pathsBar.innerHTML = `${blockPreviews.length} 个方块 | ${total} 个图标
       <span class="clickable" id="nav-desktop">🖥 桌面</span>
       <span class="clickable" id="nav-trash">🗑</span>
-      <span class="clickable" id="nav-settings">⚙</span>`;
+      <span class="clickable" id="nav-settings">⚙</span>
+      <span style="margin-left:auto;font-size:10px">
+        <span class="clickable sort-btn" data-sort="name" data-asc="1">🔤名称</span>
+        <span class="clickable sort-btn" data-sort="count" data-asc="0" style="margin-left:4px">📊数量</span>
+      </span>`;
     renderBlockCards();
     document.getElementById("nav-desktop")!.onclick = showDesktopView;
     document.getElementById("nav-trash")!.onclick = showTrashView;
     document.getElementById("nav-settings")!.onclick = showSettingsView;
+    document.querySelectorAll<HTMLElement>(".sort-btn").forEach(btn => {
+      btn.onclick = async () => {
+        const sortBy = btn.dataset.sort!;
+        const asc = btn.dataset.asc === "1";
+        btn.dataset.asc = asc ? "0" : "1";
+        await invoke("sort_blocks", { sortBy, ascending: !asc });
+        showBlocksView();
+      };
+    });
   } catch (e) { showError("加载失败", String(e)); }
 }
 
 export function renderBlockCards(): void {
   hideLoading();
-  iconGrid.innerHTML = blockPreviews.map(b => `
+  let html = "";
+  if (recentItems.length > 0) {
+    html += `<div style="grid-column:1/-1;display:flex;gap:6px;align-items:center;padding:2px 0;font-size:11px;color:var(--text-secondary)">
+      <span>🕐 最近:</span>`;
+    for (const r of recentItems) {
+      html += `<span class="clickable recent-item" data-bid="${r.blockId}" data-iid="${r.itemId}" style="padding:2px 8px;background:var(--glass-bg);border-radius:10px;border:1px solid var(--glass-border);display:flex;align-items:center;gap:4px;max-width:120px;overflow:hidden;white-space:nowrap;text-overflow:ellipsis">
+        ${r.icon ? `<img src="${e(r.icon)}" style="width:14px;height:14px">` : ""}
+        ${h(r.name)}
+      </span>`;
+    }
+    html += `</div>`;
+  }
+  iconGrid.innerHTML = html + blockPreviews.map(b => `
     <div class="block-card" data-bid="${b.id}" draggable="true" style="border-left:3px solid ${b.color}">
       <div class="block-card-header">
         <span class="block-card-name">${b.icon} ${h(b.name)}</span>
@@ -58,6 +84,12 @@ export function renderBlockCards(): void {
     card.addEventListener("dragend", () => { card.classList.remove("dragging"); dragState.el = null; });
     card.addEventListener("dragover", (e) => { e.preventDefault(); });
     card.addEventListener("drop", (e) => { e.preventDefault(); if (dragState.el && dragState.el !== card) handleBlockCardDrop(dragState.el, card); });
+  });
+  iconGrid.querySelectorAll<HTMLElement>(".recent-item").forEach(el => {
+    el.addEventListener("click", (e) => {
+      e.stopPropagation();
+      openStoredItem(el.dataset.bid!, el.dataset.iid!);
+    });
   });
 }
 

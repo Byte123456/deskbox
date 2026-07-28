@@ -210,7 +210,10 @@ pub fn run() {
                         let _ = app.get_webview_window("main")
                             .and_then(|w| w.emit("open-settings", ()).ok());
                     }
-                    "quit" => app.exit(0),
+                    "quit" => {
+                        logger::flush();
+                        app.exit(0);
+                    }
                     _ => {}
                 })
                 .build(app)?;
@@ -280,6 +283,8 @@ pub fn run() {
             commands::reorder_items,
             commands::copy_item,
             commands::reorder_blocks,
+            commands::sort_blocks,
+            commands::get_storage_stats,
             commands::create_block,
             commands::delete_block,
             commands::move_to_trash,

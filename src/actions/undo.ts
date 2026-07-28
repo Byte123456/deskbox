@@ -1,6 +1,6 @@
 import { invoke } from "@tauri-apps/api/core";
 import type { UndoAction, UndoActionType, BlockItem } from "../types";
-import { undoStack, redoStack, MAX_UNDO_STEPS, blockPreviews, blockState, desktopItems } from "../state";
+import { undoStack, redoStack, MAX_UNDO_STEPS, blockPreviews, blockState, desktopItems, viewState } from "../state";
 import { toast } from "../utils";
 import { showBlocksView, renderBlockCards } from "../views/blocks-view";
 import { renderBlockDetail } from "../views/block-detail";
@@ -223,14 +223,11 @@ async function executeRedo(action: UndoAction): Promise<void> {
 
 // 刷新当前视图
 async function refreshCurrentView(): Promise<void> {
-  const currentView = (window as any).__view;
-  
-  if (currentView === "blocks") {
+  if (viewState.current === "blocks") {
     await showBlocksView();
-  } else if (currentView === "desktop") {
+  } else if (viewState.current === "desktop") {
     await showDesktopView();
-  } else if (currentView === "block-detail" && blockState.current) {
-    // 重新加载方块详情
+  } else if (viewState.current === "block-detail" && blockState.current) {
     const blocks = await invoke<any[]>("get_blocks");
     const updated = blocks.find(b => b.id === blockState.current!.id);
     if (updated) {

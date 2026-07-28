@@ -1,6 +1,6 @@
 import { invoke } from "@tauri-apps/api/core";
 import type { Block } from "../types";
-import { blockState, dragState, iconGrid, pathsBar, loadingState, batchSelected } from "../state";
+import { blockState, dragState, iconGrid, pathsBar, loadingState, batchSelected, viewState } from "../state";
 import { showBlocksView } from "./blocks-view";
 import { showItemCtxMenu } from "../components/context-menu";
 import { showColorPicker } from "../components/color-picker";
@@ -12,7 +12,7 @@ import { clearSearch } from "../components/search-bar";
 import { h, e, getFallbackEmoji, showLoading, hideLoading, showError, toast } from "../utils";
 
 export async function showBlockDetail(blockId: string): Promise<void> {
-  (window as any).__view = "block-detail";
+  viewState.current = "block-detail";
   clearSearch();
   showLoading();
   try {
@@ -196,7 +196,7 @@ export function renderBlockDetail(): void {
   updateSelectionUI();
 }
 
-function updateSelectionUI(): void {
+export function updateSelectionUI(): void {
   const batchBar = document.getElementById("batch-toolbar");
   const batchCnt = document.getElementById("batch-count");
   if (!batchBar || !batchCnt) return;

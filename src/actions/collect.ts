@@ -1,6 +1,6 @@
 import { invoke } from "@tauri-apps/api/core";
 import type { DesktopItem, BlockPreview } from "../types";
-import { desktopItems } from "../state";
+import { desktopItems, busyLock, setBusy } from "../state";
 import { showDesktopView } from "../views/desktop-view";
 import { pickBlock } from "../components/modal";
 import { pushUndo } from "./undo";
@@ -10,7 +10,6 @@ export async function doCollectItem(path: string): Promise<void> {
   const bid = await pickBlock(); if (bid === null) return;
   try {
     const result = await invoke<any>("collect_item", { path, blockId: bid });
-    // 记录撤销操作
     pushUndo({
       type: "collect_item",
       data: {
@@ -26,11 +25,11 @@ export async function doCollectItem(path: string): Promise<void> {
 }
 
 export async function doCollectAll(): Promise<void> {
-  if (desktopItems.length === 0) { toast("没有图标"); return; }
+  if (busyLock || desktopItems.length === 0) { if (!busyLock) toast("没有图标"); return; }
   const bid = await pickBlock(); if (bid === null) return;
+  setBusy(true);
   try {
     const r = await invoke<any>("collect_all", { blockId: bid });
-    // 记录撤销操作（全部收纳作为一个操作）
     pushUndo({
       type: "collect_all",
       data: {
@@ -41,4 +40,5 @@ export async function doCollectAll(): Promise<void> {
     toast(`已收纳 ${r.collected}/${r.total} ✓`);
     showDesktopView();
   } catch (e) { toast(`失败: ${e}`); }
+  finally { setBusy(false); }
 }

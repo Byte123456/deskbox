@@ -1,5 +1,30 @@
-use crate::lnk::{self, DesktopItem};
+use crate::lnk::{self, DesktopItem, LnkInfo};
+use std::collections::HashMap;
 use std::path::PathBuf;
+use std::sync::Mutex;
+
+static LNK_CACHE: std::sync::LazyLock<Mutex<HashMap<String, (u64, Option<LnkInfo>)>>> =
+    std::sync::LazyLock::new(|| Mutex::new(HashMap::new()));
+
+fn cached_parse_item(path: &std::path::Path) -> Option<LnkInfo> {
+    let key = path.to_string_lossy().to_string();
+    let mtime = crate::lnk::file_mtime(path).unwrap_or(0);
+    if let Ok(cache) = LNK_CACHE.lock() {
+        if let Some((cached_mtime, info)) = cache.get(&key) {
+            if *cached_mtime == mtime {
+                return info.clone();
+            }
+        }
+    }
+    let info = crate::lnk::parse_item(path);
+    if let Ok(mut cache) = LNK_CACHE.lock() {
+        if cache.len() > 200 {
+            cache.clear();
+        }
+        cache.insert(key, (mtime, info.clone()));
+    }
+    info
+}
 
 /// Get the user's desktop directory path
 pub fn get_user_desktop() -> PathBuf {
@@ -92,7 +117,7 @@ pub fn scan_directory(dir: &PathBuf) -> Vec<DesktopItem> {
 
         // Parse LNK or URL info
         let lnk_info = match item_type.as_str() {
-            "shortcut" | "url" => lnk::parse_item(&path),
+            "shortcut" | "url" => cached_parse_item(&path),
             _ => None,
         };
 

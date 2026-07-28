@@ -1,6 +1,6 @@
 import { invoke } from "@tauri-apps/api/core";
 import type { DesktopItem, Block } from "../types";
-import { blockState } from "../state";
+import { blockState, pushRecent } from "../state";
 import { pickBlock } from "../components/modal";
 import { showBlockDetail } from "../views/block-detail";
 import { pushUndo } from "./undo";
@@ -32,6 +32,7 @@ export async function openStoredItem(bid: string, iid: string): Promise<void> {
     target = item.lnk_info.target_path;
   }
   openWith(target, args, wd);
+  pushRecent({ name: item.name, blockId: bid, itemId: iid, icon: item.icon_base64 });
 }
 
 export async function openWith(target: string, args?: string, wd?: string): Promise<void> {

@@ -67,7 +67,16 @@ pub fn software_identity(info: &LnkInfo) -> Option<String> {
     let exe = norm(&info.exe_name);
     let product = norm(&info.product_name);
     let company = norm(&info.company_name);
-    if exe.is_empty() && product.is_empty() { return None; }
+    if exe.is_empty() && product.is_empty() {
+        let target = norm(&info.target_path);
+        if let Some(rest) = target.strip_prefix("steam://rungameid/") {
+            let appid = rest.split(|c: char| !c.is_ascii_digit()).next().unwrap_or("");
+            if !appid.is_empty() {
+                return Some(format!("steam_{:x}", Sha256::digest(appid.as_bytes())));
+            }
+        }
+        return None;
+    }
     let raw = format!("{exe}|{product}|{company}");
     Some(format!("{:x}", Sha256::digest(raw.as_bytes())))
 }
@@ -101,13 +110,15 @@ fn score(item: &DesktopItem, rule: &Rule) -> (i32, Vec<String>) {
     let product = info.map(|i| i.product_name.as_str()).unwrap_or_default();
     let company = info.map(|i| i.company_name.as_str()).unwrap_or_default();
     let description = info.map(|i| i.file_description.as_str()).unwrap_or_default();
-    let all = format!("{} {} {} {} {}", item.name, product, company, description, target);
+    let icon_loc = info.map(|i| i.icon_location.as_str()).unwrap_or_default();
+    let all = format!("{} {} {} {} {} {}", item.name, product, company, description, target, icon_loc);
+    let search_path = format!("{} {}", target, icon_loc);
     if rule.exclude_phrases.iter().any(|p| contains_phrase(&all, p)) { return (-100, vec!["命中排除条件".into()]); }
     let mut points = 0;
     let mut reasons = Vec::new();
     if exact(exe, &rule.exact_executables) { points += 100; reasons.push(format!("exe 精确匹配 {exe}")); }
     if exact(product, &rule.product_names) { points += 90; reasons.push(format!("产品名称精确匹配 {product}")); }
-    if rule.path_patterns.iter().any(|p| contains_phrase(target, p)) { points += 70; reasons.push("安装路径匹配".into()); }
+    if rule.path_patterns.iter().any(|p| contains_phrase(&search_path, p)) { points += 70; reasons.push("安装路径匹配".into()); }
     if rule.strong_phrases.iter().any(|p| contains_phrase(&all, p)) { points += 30; reasons.push("可靠短语匹配".into()); }
     for word in &rule.weak_words {
         if word_match(&all, word) {
@@ -125,10 +136,12 @@ fn fingerprint_scores(item: &DesktopItem, scores: &mut HashMap<String, (i32, Vec
         let product = norm(&info.product_name);
         let company = norm(&info.company_name);
         let target = norm(&info.target_path);
+        let icon_loc = norm(&info.icon_location);
+        let search_path = format!("{} {}", target, icon_loc);
         let exe_hit = !exe.is_empty() && exe == fp.exe;
         let product_hit = fp.products.iter().any(|v| product == *v);
         let publisher_hit = fp.publishers.iter().any(|v| company.contains(v));
-        let path_hit = fp.paths.iter().any(|v| target.contains(&norm(v)));
+        let path_hit = fp.paths.iter().any(|v| search_path.contains(&norm(v)));
         let entry = scores.entry(fp.category.into()).or_default();
         if exe_hit { entry.0 += 100; entry.1.push("本地软件库 exe 命中".into()); }
         if product_hit { entry.0 += 90; entry.1.push("本地软件库产品命中".into()); }
@@ -226,7 +239,35 @@ mod tests {
     fn item(name: &str, exe: &str, product: &str, company: &str, path: &str) -> DesktopItem {
         DesktopItem { name: name.into(), path: "x.lnk".into(), item_type: "shortcut".into(), icon_base64: None, lnk_info: Some(LnkInfo { target_path: path.into(), arguments: String::new(), working_dir: String::new(), description: String::new(), icon_location: String::new(), icon_index: 0, exe_name: exe.into(), product_name: product.into(), company_name: company.into(), file_description: String::new() }) }
     }
+    fn steam_url_item(name: &str, appid: &str, icon: &str) -> DesktopItem {
+        DesktopItem { name: name.into(), path: "x.url".into(), item_type: "shortcut".into(), icon_base64: None, lnk_info: Some(LnkInfo { target_path: format!("steam://rungameid/{appid}"), arguments: String::new(), working_dir: String::new(), description: String::new(), icon_location: icon.into(), icon_index: 0, exe_name: String::new(), product_name: String::new(), company_name: String::new(), file_description: String::new() }) }
+    }
     #[test] fn code_is_development_by_identity() { let rules=create_rules(&[]); let x=item("Code","Code.exe","Visual Studio Code","Microsoft Corporation",r"C:\Microsoft VS Code\Code.exe"); let dev=rules.iter().find(|r|r.category=="开发").unwrap(); assert!(score(&x,dev).0>=190); }
     #[test] fn weak_studio_cannot_auto_classify() { let rules=create_rules(&[]); let x=item("Studio","launcher.exe","","",r"C:\Apps\Studio\launcher.exe"); assert!(rules.iter().map(|r|score(&x,r).0).max().unwrap()<80); }
     #[test] fn identity_ignores_shortcut_name() { let a=item("Discord","Discord.exe","Discord","Discord Inc.",r"C:\Discord.exe"); let b=item("My Chat","Discord.exe","Discord","Discord Inc.",r"D:\Discord.exe"); assert_eq!(software_identity(a.lnk_info.as_ref().unwrap()),software_identity(b.lnk_info.as_ref().unwrap())); }
+    #[test] fn steam_url_classified_as_game() {
+        let rules = create_rules(&[]);
+        let x = steam_url_item("Dead Cells", "588650", r"D:\steam\steam\games\4937672451bb.ico");
+        let game = rules.iter().find(|r| r.category == "游戏").unwrap();
+        let (pts, _) = score(&x, game);
+        assert!(pts >= 80, "Steam .url game score={pts}, need >=80");
+    }
+    #[test] fn steam_url_identity_uses_appid() {
+        let a = steam_url_item("Dead Cells", "588650", r"D:\steam\steam\games\aaa.ico");
+        let b = steam_url_item("Terraria", "105600", r"D:\steam\steam\games\bbb.ico");
+        let id_a = software_identity(a.lnk_info.as_ref().unwrap());
+        let id_b = software_identity(b.lnk_info.as_ref().unwrap());
+        assert!(id_a.is_some(), "Steam .url should have identity");
+        assert!(id_b.is_some());
+        assert_ne!(id_a, id_b, "Different Steam games must have different identities");
+    }
+    #[test] fn steam_url_higher_than_other_categories() {
+        let rules = create_rules(&[]);
+        let x = steam_url_item("Slay the Spire", "646570", r"D:\steam\steam\games\ccc.ico");
+        let mut ranked: Vec<_> = rules.iter().map(|r| (r.category.clone(), score(&x, r).0)).collect();
+        ranked.sort_by(|a, b| b.1.cmp(&a.1));
+        assert_eq!(ranked[0].0, "游戏");
+        let gap = ranked[0].1 - ranked[1].1;
+        assert!(gap >= 30, "Steam game must dominate: gap={gap}");
+    }
 }

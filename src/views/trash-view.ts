@@ -1,11 +1,11 @@
 import { invoke } from "@tauri-apps/api/core";
 import type { TrashItem } from "../types";
-import { trashItems, iconGrid, pathsBar, loadingState } from "../state";
+import { trashItems, iconGrid, pathsBar, loadingState, viewState } from "../state";
 import { showBlocksView } from "./blocks-view";
 import { h, e, getFallbackEmoji, showLoading, hideLoading, showError, toast } from "../utils";
 
 export async function showTrashView(): Promise<void> {
-  (window as any).__view = "trash";
+  viewState.current = "trash";
   showLoading();
   try {
     trashItems.length = 0;

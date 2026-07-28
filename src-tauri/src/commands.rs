@@ -97,14 +97,14 @@ pub fn collect_item(path: String, block_id: Option<String>) -> Result<serde_json
     if user_selected {
         if let (Some(info), Some(block)) = (&lnk_info, config.blocks.iter().find(|b| b.id == bid)) {
             if let Some(identity) = crate::auto_organize::software_identity(info) {
-                config.user_overrides.insert(identity, block.name.clone());
-            }
+config.user_overrides.insert(identity, block.name.clone());
+                crate::config::trim_user_overrides(&mut config);
+              }
         }
     }
     config.add_item(&bid, path, storage_path, name, item_type.to_string(), lnk_info, icon_base64);
     config.save()?;
 
-    let config = AppConfig::load();
     let block = config.blocks.iter().find(|b| b.id == bid).unwrap();
     let item = block.items.last().unwrap();
 
@@ -206,6 +206,7 @@ fn elevated_move_files(items: &[(String, String)]) -> bool {
             dst.replace('\'', "''")
         ));
     }
+    script.push_str("Remove-Item -LiteralPath $MyInvocation.MyCommand.Path -Force");
 
     // Write to temp file
     let ps1_path = std::env::temp_dir().join("deskbox_restore.ps1");
@@ -437,7 +438,12 @@ pub fn read_log() -> String {
         .map(std::path::PathBuf::from)
         .unwrap_or_else(|_| std::path::PathBuf::from("."))
         .join("DeskBox/deskbox.log");
-    std::fs::read_to_string(&log_path).unwrap_or_else(|_| "暂无日志".to_string())
+    let content = std::fs::read_to_string(&log_path).unwrap_or_default();
+    if content.is_empty() { return "暂无日志".to_string(); }
+    let lines: Vec<&str> = content.lines().collect();
+    let total = lines.len();
+    if total <= 100 { return content; }
+    format!("... (省略 {} 行)\n{}", total - 100, lines[total - 100..].join("\n"))
 }
 
 /// Get current settings
@@ -449,19 +455,27 @@ pub fn get_settings() -> serde_json::Value {
 
 /// Save settings
 #[tauri::command]
-pub fn save_settings(settings: serde_json::Value) -> Result<(), String> {
+pub fn save_settings(app: tauri::AppHandle, settings: serde_json::Value) -> Result<(), String> {
     let mut config = AppConfig::load();
     if let Some(v) = settings.get("hotkey") {
         config.settings.hotkey = v.as_str().unwrap_or("Alt+Shift+D").to_string();
     }
     if let Some(v) = settings.get("autostart") {
-        config.settings.autostart = v.as_bool().unwrap_or(true);
+        let val = v.as_bool().unwrap_or(true);
+        config.settings.autostart = val;
+        use tauri_plugin_autostart::ManagerExt;
+        let mgr = app.autolaunch();
+        if val { mgr.enable() } else { mgr.disable() }.map_err(|e| format!("{e}"))?;
     }
     if let Some(v) = settings.get("animations") {
         config.settings.animations = v.as_bool().unwrap_or(true);
     }
     if let Some(v) = settings.get("always_on_top") {
-        config.settings.always_on_top = v.as_bool().unwrap_or(true);
+        let val = v.as_bool().unwrap_or(true);
+        config.settings.always_on_top = val;
+        if let Some(window) = app.get_webview_window("main") {
+            window.set_always_on_top(val).map_err(|e| format!("{e}"))?;
+        }
     }
     if let Some(v) = settings.get("theme") {
         config.settings.theme = v.as_str().unwrap_or("dark").to_string();
@@ -546,6 +560,30 @@ pub fn reorder_blocks(block_ids: Vec<String>) -> Result<(), String> {
     config.save()
 }
 
+/// Sort blocks by name or count
+#[tauri::command]
+pub fn sort_blocks(sort_by: String, ascending: bool) -> Result<(), String> {
+    let mut config = AppConfig::load();
+    match sort_by.as_str() {
+        "name" => {
+            if ascending {
+                config.blocks.sort_by(|a, b| a.name.to_lowercase().cmp(&b.name.to_lowercase()));
+            } else {
+                config.blocks.sort_by(|a, b| b.name.to_lowercase().cmp(&a.name.to_lowercase()));
+            }
+        }
+        "count" => {
+            if ascending {
+                config.blocks.sort_by_key(|b| b.items.len());
+            } else {
+                config.blocks.sort_by_key(|b| std::cmp::Reverse(b.items.len()));
+            }
+        }
+        _ => return Err("排序方式无效".to_string()),
+    }
+    config.save()
+}
+
 /// Enable/disable autostart
 #[tauri::command]
 pub fn set_autostart(app: tauri::AppHandle, enable: bool) -> Result<(), String> {
@@ -599,8 +637,9 @@ pub fn move_item(
     if from_block_id != to_block_id {
         if let Some(info) = &item.lnk_info {
             if let Some(identity) = crate::auto_organize::software_identity(info) {
-                config.user_overrides.insert(identity, target_name);
-            }
+config.user_overrides.insert(identity, target_name);
+                crate::config::trim_user_overrides(&mut config);
+              }
         }
     }
     let target_block = config.blocks.iter_mut()
@@ -812,6 +851,45 @@ pub fn empty_trash() -> Result<serde_json::Value, String> {
     config.trash.clear();
     config.save()?;
     Ok(serde_json::json!({ "cleared": count }))
+}
+
+// ---- Storage stats ----
+
+#[tauri::command]
+pub fn get_storage_stats() -> Result<serde_json::Value, String> {
+    let config = AppConfig::load();
+    let storage_dir = storage::get_storage_dir();
+    let total_files: u64 = config.blocks.iter().map(|b| b.items.len() as u64).sum();
+    let total_size = dir_size(&storage_dir);
+    let per_block: Vec<_> = config.blocks.iter().map(|b| {
+        let block_size = b.items.iter().filter_map(|i| {
+            let p = std::path::Path::new(&i.storage_path);
+            std::fs::metadata(p).ok().map(|m| m.len())
+        }).sum::<u64>();
+        serde_json::json!({ "name": b.name, "count": b.items.len(), "size_bytes": block_size })
+    }).collect();
+    Ok(serde_json::json!({
+        "total_files": total_files,
+        "total_size_bytes": total_size,
+        "total_size_mb": format!("{:.1}", total_size as f64 / 1048576.0),
+        "blocks": per_block,
+    }))
+}
+
+fn dir_size(path: &std::path::Path) -> u64 {
+    let mut total: u64 = 0;
+    if let Ok(entries) = std::fs::read_dir(path) {
+        for entry in entries.flatten() {
+            if let Ok(meta) = entry.metadata() {
+                if meta.is_dir() {
+                    total += dir_size(&entry.path());
+                } else {
+                    total += meta.len();
+                }
+            }
+        }
+    }
+    total
 }
 
 // ---- Cache clean ----

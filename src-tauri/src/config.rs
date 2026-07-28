@@ -244,7 +244,15 @@ fn chrono_now() -> String {
     format!("{year:04}-{month:02}-{day:02}T{hours:02}:{minutes:02}:{seconds:02}Z")
 }
 
-/// Simple date calculation from days since epoch
+pub fn trim_user_overrides(config: &mut AppConfig) {
+    const MAX: usize = 200;
+    if config.user_overrides.len() > MAX {
+        let keys: Vec<String> = config.user_overrides.keys().take(50).cloned().collect();
+        for k in keys {
+            config.user_overrides.remove(&k);
+        }
+    }
+}
 fn civil_from_days(days: i64) -> (i64, u32, u32) {
     // Algorithm from Howard Hinnant
     let z = days + 719468;

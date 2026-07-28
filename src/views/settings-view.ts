@@ -1,12 +1,12 @@
 import { invoke } from "@tauri-apps/api/core";
 import { save, open } from "@tauri-apps/plugin-dialog";
-import { iconGrid, pathsBar } from "../state";
+import { iconGrid, pathsBar, viewState } from "../state";
 import { showBlocksView } from "./blocks-view";
 import { h, hideLoading, toast, applyTheme } from "../utils";
 import type { OrganizeRule } from "../types";
 
 export async function showSettingsView(): Promise<void> {
-  (window as any).__view = "settings";
+  viewState.current = "settings";
   hideLoading();
   const s = await invoke<any>("get_settings");
   const icons = await invoke<any[]>("get_system_icons_state");
@@ -67,9 +67,7 @@ export async function showSettingsView(): Promise<void> {
         <button class="btn-secondary" id="btn-import-backup">📥 导入备份</button>
         <button class="btn-secondary" id="btn-clean-cache">🧹 清理图标缓存</button>
       </div>
-      <div class="backup-info">
-        💡 提示：备份文件包含所有方块配置和收纳的文件，可用于换电脑迁移或数据恢复
-      </div>
+      <div class="backup-info" id="storage-stats">计算中...</div>
     </div>
 
     <div class="settings-section">
@@ -121,8 +119,6 @@ export async function showSettingsView(): Promise<void> {
       const checked = t.checked, key = t.dataset.key!;
       const sk = key==="ontop"?"always_on_top":key;
       await invoke("save_settings", { settings: { [sk]: checked } });
-      if (key === "ontop") await invoke("set_always_on_top", { on: checked });
-      if (key === "autostart") await invoke("set_autostart", { enable: checked });
       toast("已保存 ✓");
     };
   });
@@ -190,6 +186,18 @@ export async function showSettingsView(): Promise<void> {
 
   // Load organize rules
   loadRulesEditor();
+  loadStorageStats();
+}
+
+async function loadStorageStats(): Promise<void> {
+  try {
+    const stats = await invoke<any>("get_storage_stats");
+    const blk = stats.blocks.map((b: any) =>
+      `<span>${b.name}: ${b.count} 个 (${(b.size_bytes / 1048576).toFixed(1)} MB)</span>`
+    ).join("<br>");
+    document.getElementById("storage-stats")!.innerHTML =
+      `📊 共收纳 ${stats.total_files} 个文件，占用 ${stats.total_size_mb} MB<br>${blk}`;
+  } catch { /* ignore */ }
 }
 
 async function loadRulesEditor(): Promise<void> {

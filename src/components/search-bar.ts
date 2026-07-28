@@ -1,5 +1,5 @@
-import { searchState, blockPreviews, desktopItems, blockState, pathsBar as _pb } from "../state";
-import { $, matchPinyin, debounce } from "../utils";
+import { searchState, blockPreviews, desktopItems, blockState, viewState } from "../state";
+import { $, matchPinyinCached, debounce } from "../utils";
 import { renderBlockCards } from "../views/blocks-view";
 import { renderDesktopItems } from "../views/desktop-view";
 import { renderBlockDetail } from "../views/block-detail";
@@ -21,7 +21,7 @@ export const performSearch = debounce((query: string) => {
     refreshCurrentView();
     return;
   }
-  const currentView = (window as any).__view;
+  const currentView = viewState.current;
   snapOnce(currentView);
   switch (currentView) {
     case "blocks": searchBlocks(query); break;
@@ -60,7 +60,7 @@ function restoreData(): void {
 function searchBlocks(query: string): void {
   const original = (window as any).__originalBlocks || blockPreviews;
   const filtered = original.filter((block: any) =>
-    matchPinyin(block.name, query) || block.preview_items.some((item: any) => matchPinyin(item.name, query))
+    matchPinyinCached(block.name, query) || block.preview_items.some((item: any) => matchPinyinCached(item.name, query))
   );
   blockPreviews.length = 0;
   blockPreviews.push(...filtered);
@@ -69,7 +69,7 @@ function searchBlocks(query: string): void {
 
 function searchDesktopItems(query: string): void {
   const original = (window as any).__originalDesktopItems || desktopItems;
-  const filtered = original.filter((item: any) => matchPinyin(item.name, query));
+  const filtered = original.filter((item: any) => matchPinyinCached(item.name, query));
   desktopItems.length = 0;
   desktopItems.push(...filtered);
   renderDesktopItems();
@@ -78,13 +78,13 @@ function searchDesktopItems(query: string): void {
 function searchBlockItems(query: string): void {
   if (!blockState.current) return;
   const original = (window as any).__originalBlockItems || blockState.current.items;
-  const filtered = original.filter((item: any) => matchPinyin(item.name, query));
+  const filtered = original.filter((item: any) => matchPinyinCached(item.name, query));
   blockState.current.items = filtered;
   renderBlockDetail();
 }
 
 function refreshCurrentView(): void {
-  const view = (window as any).__view;
+  const view = viewState.current;
   if (view === "blocks") renderBlockCards();
   else if (view === "desktop") renderDesktopItems();
   else if (view === "block-detail") renderBlockDetail();

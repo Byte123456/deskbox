@@ -30,27 +30,82 @@ pub struct LnkInfo {
 }
 
 fn read_exe_metadata(target_path: &str) -> (String, String, String, String) {
+    use windows::core::PCWSTR;
+    use windows::Win32::Storage::FileSystem::{
+        GetFileVersionInfoSizeW, GetFileVersionInfoW, VerQueryValueW,
+    };
+
     let path = std::path::Path::new(target_path);
     let exe_name = path.file_name().and_then(|v| v.to_str()).unwrap_or_default().to_string();
     if !target_path.to_ascii_lowercase().ends_with(".exe") || !path.exists() {
         return (exe_name, String::new(), String::new(), String::new());
     }
 
-    // VersionInfo is embedded in the executable; this is fully offline. Using
-    // PowerShell avoids unsafe fixed-size Windows version-resource parsing.
-    let escaped = target_path.replace('\'', "''");
-    let script = format!(
-        "$v=(Get-Item -LiteralPath '{}').VersionInfo; @{{product_name=$v.ProductName;company_name=$v.CompanyName;file_description=$v.FileDescription}} | ConvertTo-Json -Compress",
-        escaped
-    );
-    let output = std::process::Command::new("powershell")
-        .args(["-NoProfile", "-NonInteractive", "-Command", &script])
-        .output();
-    let value = output.ok().filter(|o| o.status.success())
-        .and_then(|o| serde_json::from_slice::<serde_json::Value>(&o.stdout).ok())
-        .unwrap_or_default();
-    let field = |name: &str| value.get(name).and_then(|v| v.as_str()).unwrap_or_default().trim().to_string();
-    (exe_name, field("product_name"), field("company_name"), field("file_description"))
+    let wide_path: Vec<u16> = target_path.encode_utf16().chain(std::iter::once(0)).collect();
+
+    unsafe {
+        let mut handle: u32 = 0;
+        let size = GetFileVersionInfoSizeW(PCWSTR::from_raw(wide_path.as_ptr()), Some(&mut handle));
+        if size == 0 {
+            return (exe_name, String::new(), String::new(), String::new());
+        }
+
+        let mut buf: Vec<u8> = vec![0u8; size as usize];
+        let _ = GetFileVersionInfoW(
+            PCWSTR::from_raw(wide_path.as_ptr()),
+            Some(handle),
+            size,
+            buf.as_mut_ptr() as *mut std::ffi::c_void,
+        );
+
+        let trans_query: Vec<u16> = "\\VarFileInfo\\Translation"
+            .encode_utf16()
+            .chain(std::iter::once(0))
+            .collect();
+        let mut trans_ptr: *mut std::ffi::c_void = std::ptr::null_mut();
+        let mut trans_len: u32 = 0;
+        let _ = VerQueryValueW(
+            buf.as_ptr() as *const std::ffi::c_void,
+            PCWSTR::from_raw(trans_query.as_ptr()),
+            &mut trans_ptr,
+            &mut trans_len,
+        );
+
+        let (lang, codepage) = if !trans_ptr.is_null() && trans_len >= 4 {
+            (*(trans_ptr as *const u16), *((trans_ptr as *const u16).add(1)))
+        } else {
+            (0x0409u16, 0x04B0u16)
+        };
+
+        let query_field = |name: &str| -> String {
+            let sub_str = format!(
+                "\\StringFileInfo\\{:04x}{:04x}\\{}",
+                lang, codepage, name
+            );
+            let sub_wide: Vec<u16> = sub_str.encode_utf16().chain(std::iter::once(0)).collect();
+            let mut val_ptr: *mut std::ffi::c_void = std::ptr::null_mut();
+            let mut val_len: u32 = 0;
+            let _ = VerQueryValueW(
+                buf.as_ptr() as *const std::ffi::c_void,
+                PCWSTR::from_raw(sub_wide.as_ptr()),
+                &mut val_ptr,
+                &mut val_len,
+            );
+            if !val_ptr.is_null() && val_len > 0 {
+                let chars = std::slice::from_raw_parts(val_ptr as *const u16, val_len as usize);
+                let end = chars.iter().position(|&c| c == 0).unwrap_or(chars.len());
+                String::from_utf16_lossy(&chars[..end]).trim().to_string()
+            } else {
+                String::new()
+            }
+        };
+
+        let product_name = query_field("ProductName");
+        let company_name = query_field("CompanyName");
+        let file_description = query_field("FileDescription");
+
+        (exe_name, product_name, company_name, file_description)
+    }
 }
 
 /// A desktop item displayed in the UI

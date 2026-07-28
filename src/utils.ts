@@ -74,6 +74,30 @@ export function matchPinyin(text: string, query: string): boolean {
   return false;
 }
 
+const pinyinCache = new Map<string, { first: string; full: string }>();
+
+export function precomputePinyin(items: { name: string }[]): void {
+  const fn = _pinyinFn;
+  if (!fn) return;
+  for (const item of items) {
+    if (item.name && !pinyinCache.has(item.name)) {
+      try { pinyinCache.set(item.name, fn(item.name)); } catch { /* ignore */ }
+    }
+  }
+}
+
+export function matchPinyinCached(name: string, query: string): boolean {
+  if (!query) return true;
+  const lowerName = name.toLowerCase();
+  const lowerQuery = query.toLowerCase();
+  if (lowerName.includes(lowerQuery)) return true;
+  const cached = pinyinCache.get(name);
+  if (cached) {
+    return cached.full.includes(lowerQuery) || cached.first.includes(lowerQuery);
+  }
+  return matchPinyin(name, query);
+}
+
 export function preloadPinyin(): void {
   getPinyinFn();
 }
@@ -89,11 +113,10 @@ export function debounce<T extends (...args: any[]) => any>(fn: T, delay: number
 
 export function applyTheme(mode: string): void {
   const cls = document.documentElement.classList;
+  cls.remove("auto-theme", "theme-light");
   if (mode === "auto") {
-    const mq = window.matchMedia("(prefers-color-scheme: light)");
-    cls.toggle("theme-light", mq.matches);
-    mq.onchange = (e) => cls.toggle("theme-light", e.matches);
-  } else {
-    cls.toggle("theme-light", mode === "light");
+    cls.add("auto-theme");
+  } else if (mode === "light") {
+    cls.add("theme-light");
   }
 }
