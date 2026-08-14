@@ -120,3 +120,8 @@ export function applyTheme(mode: string): void {
     cls.add("theme-light");
   }
 }
+
+/** 应用「动画效果」设置：关闭时全局禁用过渡与动画 */
+export function applyAnimations(enabled: boolean): void {
+  document.documentElement.classList.toggle("no-anim", !enabled);
+}

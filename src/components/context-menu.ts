@@ -1,3 +1,4 @@
+import { invoke } from "@tauri-apps/api/core";
 import { blockPreviews, blockState } from "../state";
 import { showBlockDetail } from "../views/block-detail";
 import { showBlocksView } from "../views/blocks-view";
@@ -45,7 +46,6 @@ export function showBlockCtxMenu(x: number, y: number, blockId: string): void {
       const name = prompt("新名称", block.name);
       if (name) {
         try {
-          const { invoke } = await import("@tauri-apps/api/core");
           const oldName = block.name;
           await invoke("rename_block", { blockId, name });
           pushUndo({

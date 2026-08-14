@@ -1,27 +1,25 @@
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { getCurrentWindow } from "@tauri-apps/api/window";
-import type { Block } from "./types";
-import { firstLaunch, searchState, viewState, batchSelected, blockState } from "./state";
+import { searchState, viewState, batchSelected, blockState } from "./state";
 import { showBlocksView } from "./views/blocks-view";
 import { showSettingsView } from "./views/settings-view";
+import { showDesktopView } from "./views/desktop-view";
 import { clearSearch, performSearch } from "./components/search-bar";
 import { undo, redo } from "./actions/undo";
 import { openStoredItem } from "./actions/items";
 import { moveToTrash } from "./actions/blocks";
+import { pickBlock } from "./components/modal";
 import { updateSelectionUI } from "./views/block-detail";
-import { $, preloadPinyin, applyTheme } from "./utils";
+import { $, preloadPinyin, applyTheme, applyAnimations, toast } from "./utils";
 
 window.addEventListener("DOMContentLoaded", async () => {
-  try {
-    const blocks = await invoke<Block[]>("get_blocks");
-    const isEmpty = blocks.length === 0 || blocks.every(b => b.item_count === 0);
-    if (isEmpty) firstLaunch;
-  } catch { /* ignore */ }
-
   showBlocksView();
   preloadPinyin();
-  invoke<any>("get_settings").then(s => applyTheme(s.theme || "dark")).catch(() => {});
+  invoke<any>("get_settings").then(s => {
+    applyTheme(s.theme || "dark");
+    applyAnimations(s.animations !== false);
+  }).catch(() => {});
 
   $("btn-min").onclick = async () => { await getCurrentWindow().minimize(); };
   $("btn-close").onclick = async () => { await getCurrentWindow().hide(); };
@@ -92,6 +90,45 @@ window.addEventListener("DOMContentLoaded", async () => {
 
   const rh = document.createElement("div"); rh.className = "resize-handle"; document.body.appendChild(rh);
 
+  // 从系统资源管理器/桌面拖文件进窗口 → 收纳（HTML5 Files 拖入；dragDropEnabled=false 时可用）
+  let dropOverlay: HTMLDivElement | null = null;
+  let dragDepth = 0;
+  const hasFiles = (dt: DataTransfer | null) => !!(dt && dt.types && [...dt.types].includes("Files"));
+  const showDropOverlay = () => {
+    if (!dropOverlay) {
+      dropOverlay = document.createElement("div");
+      dropOverlay.className = "drop-overlay";
+      dropOverlay.innerHTML = `<div class="drop-overlay-inner">📥 松开以收纳到 DeskBox</div>`;
+      document.body.appendChild(dropOverlay);
+    }
+  };
+  const hideDropOverlay = () => { if (dropOverlay) { dropOverlay.remove(); dropOverlay = null; } };
+
+  document.addEventListener("dragenter", (e) => {
+    if (!hasFiles(e.dataTransfer)) return;
+    e.preventDefault();
+    dragDepth++;
+    showDropOverlay();
+  });
+  document.addEventListener("dragover", (e) => {
+    if (!hasFiles(e.dataTransfer)) return;
+    e.preventDefault();
+    e.dataTransfer!.dropEffect = "copy";
+  });
+  document.addEventListener("dragleave", () => {
+    if (dragDepth > 0) dragDepth--;
+    if (dragDepth === 0) hideDropOverlay();
+  });
+  document.addEventListener("drop", async (e) => {
+    if (!hasFiles(e.dataTransfer)) return;
+    e.preventDefault();
+    dragDepth = 0;
+    hideDropOverlay();
+    const files = e.dataTransfer ? [...e.dataTransfer.files] : [];
+    if (files.length === 0) { toast("无法获取拖入的文件"); return; }
+    handleExternalDrop(files);
+  });
+
   listen<boolean>("toggle-window", (event) => {
     const app = document.getElementById("app");
     if (app) {
@@ -124,3 +161,29 @@ window.addEventListener("DOMContentLoaded", async () => {
     clearSearch();
   });
 });
+
+async function handleExternalDrop(files: File[]): Promise<void> {
+  const bid = await pickBlock();
+  if (bid === null) return;
+  let ok = 0, fail = 0;
+  for (const file of files) {
+    try {
+      const buf = await file.arrayBuffer();
+      const b64 = bufToB64(buf);
+      await invoke("collect_dropped_files", { files: [{ name: file.name, data: b64 }], blockId: bid });
+      ok++;
+    } catch { fail++; }
+  }
+  toast(`已收纳 ${ok} 个${fail ? `，失败 ${fail}` : ""} ✓`);
+  if (viewState.current === "desktop") showDesktopView(); else showBlocksView();
+}
+
+function bufToB64(buf: ArrayBuffer): string {
+  const bytes = new Uint8Array(buf);
+  let binary = "";
+  const chunk = 0x8000;
+  for (let i = 0; i < bytes.length; i += chunk) {
+    binary += String.fromCharCode(...bytes.subarray(i, i + chunk));
+  }
+  return btoa(binary);
+}

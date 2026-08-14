@@ -9,7 +9,7 @@ import { showCreateBlockModal } from "../components/modal";
 import { showBlockCtxMenu } from "../components/context-menu";
 import { handleBlockCardDrop } from "../actions/drag-drop";
 import { openStoredItem } from "../actions/items";
-import { h, e, getFallbackEmoji, showLoading, hideLoading, showError } from "../utils";
+import { h, e, getFallbackEmoji, showLoading, hideLoading, showError, precomputePinyin } from "../utils";
 import { clearSearch } from "../components/search-bar";
 
 export async function showBlocksView(): Promise<void> {
@@ -20,6 +20,8 @@ export async function showBlocksView(): Promise<void> {
     const previews = await invoke<BlockPreview[]>("get_block_previews");
     blockPreviews.length = 0;
     blockPreviews.push(...previews);
+    // 预计算拼音，保证输入搜索时不卡顿
+    precomputePinyin([...blockPreviews, ...blockPreviews.flatMap(b => b.preview_items)]);
     const total = blockPreviews.reduce((s, b) => s + b.item_count, 0);
     pathsBar.innerHTML = `${blockPreviews.length} 个方块 | ${total} 个图标
       <span class="clickable" id="nav-desktop">🖥 桌面</span>
@@ -80,7 +82,7 @@ export function renderBlockCards(): void {
   iconGrid.querySelectorAll<HTMLElement>(".block-card[data-bid]").forEach(card => {
     card.onclick = () => showBlockDetail(card.dataset.bid!);
     card.addEventListener("contextmenu", (e) => { e.preventDefault(); showBlockCtxMenu(e.clientX, e.clientY, card.dataset.bid!); });
-    card.addEventListener("dragstart", (e) => { dragState.el = card; card.classList.add("dragging"); (e.dataTransfer!).effectAllowed = "move"; });
+    card.addEventListener("dragstart", (e) => { dragState.el = card; card.classList.add("dragging"); e.dataTransfer!.effectAllowed = "move"; e.dataTransfer!.setData("text/plain", card.dataset.bid!); });
     card.addEventListener("dragend", () => { card.classList.remove("dragging"); dragState.el = null; });
     card.addEventListener("dragover", (e) => { e.preventDefault(); });
     card.addEventListener("drop", (e) => { e.preventDefault(); if (dragState.el && dragState.el !== card) handleBlockCardDrop(dragState.el, card); });

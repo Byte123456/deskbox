@@ -97,9 +97,9 @@ pub fn collect_item(path: String, block_id: Option<String>) -> Result<serde_json
     if user_selected {
         if let (Some(info), Some(block)) = (&lnk_info, config.blocks.iter().find(|b| b.id == bid)) {
             if let Some(identity) = crate::auto_organize::software_identity(info) {
-config.user_overrides.insert(identity, block.name.clone());
+                config.user_overrides.insert(identity, block.name.clone());
                 crate::config::trim_user_overrides(&mut config);
-              }
+            }
         }
     }
     config.add_item(&bid, path, storage_path, name, item_type.to_string(), lnk_info, icon_base64);
@@ -143,6 +143,56 @@ pub fn collect_all(block_id: Option<String>) -> Result<serde_json::Value, String
     Ok(serde_json::json!({
         "collected": collected,
         "total": items.len(),
+        "errors": errors,
+    }))
+}
+
+/// 收纳从系统资源管理器拖入的文件（以字节形式传入，复制到存储，不动原文件）
+#[tauri::command]
+pub fn collect_dropped_files(files: Vec<serde_json::Value>, block_id: Option<String>) -> Result<serde_json::Value, String> {
+    use base64::Engine;
+    let mut config = AppConfig::load();
+    let bid = block_id.unwrap_or_else(|| config.default_block().id.clone());
+    let storage_dir = storage::get_storage_dir();
+    let user_desktop = crate::desktop::get_user_desktop();
+    let mut collected = 0u32;
+    let mut errors: Vec<String> = Vec::new();
+
+    for f in &files {
+        let name = f.get("name").and_then(|v| v.as_str()).unwrap_or("dropped_file");
+        let data_b64 = f.get("data").and_then(|v| v.as_str()).unwrap_or("");
+        let data = match base64::engine::general_purpose::STANDARD.decode(data_b64) {
+            Ok(d) => d,
+            Err(e) => { errors.push(format!("{name}: {e}")); continue; }
+        };
+        let dest = storage::unique_path(&storage_dir.join(name));
+        if let Err(e) = std::fs::write(&dest, &data) {
+            errors.push(format!("{name}: {e}"));
+            continue;
+        }
+
+        let item_type = match dest.extension().and_then(|e| e.to_str()).map(|s| s.to_lowercase()).as_deref() {
+            Some("lnk") => "shortcut",
+            Some("url") => "url",
+            _ => "file",
+        }.to_string();
+        let lnk_info = match item_type.as_str() {
+            "shortcut" | "url" => lnk::parse_item(&dest),
+            _ => None,
+        };
+        let icon_base64 = extract_icon_for_item(&dest, &item_type, &lnk_info);
+        let display_name = lnk::get_display_name(&dest);
+        let original_path = user_desktop.join(dest.file_name().unwrap_or_default())
+            .to_string_lossy().to_string();
+
+        config.add_item(&bid, original_path, dest.to_string_lossy().to_string(),
+            display_name, item_type, lnk_info, icon_base64);
+        collected += 1;
+    }
+
+    config.save()?;
+    Ok(serde_json::json!({
+        "collected": collected,
         "errors": errors,
     }))
 }
@@ -637,9 +687,9 @@ pub fn move_item(
     if from_block_id != to_block_id {
         if let Some(info) = &item.lnk_info {
             if let Some(identity) = crate::auto_organize::software_identity(info) {
-config.user_overrides.insert(identity, target_name);
+                config.user_overrides.insert(identity, target_name);
                 crate::config::trim_user_overrides(&mut config);
-              }
+            }
         }
     }
     let target_block = config.blocks.iter_mut()

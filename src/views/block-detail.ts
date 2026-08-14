@@ -9,7 +9,7 @@ import { doRestoreItem, doRestoreAllBlock, moveToTrash, deleteBlock } from "../a
 import { handleBlockItemDrop } from "../actions/drag-drop";
 import { pushUndo } from "../actions/undo";
 import { clearSearch } from "../components/search-bar";
-import { h, e, getFallbackEmoji, showLoading, hideLoading, showError, toast } from "../utils";
+import { h, e, getFallbackEmoji, showLoading, hideLoading, showError, toast, precomputePinyin } from "../utils";
 
 export async function showBlockDetail(blockId: string): Promise<void> {
   viewState.current = "block-detail";
@@ -30,6 +30,7 @@ export function renderBlockDetail(): void {
   if (!blockState.current || blockState.current.items.length === 0) {
     iconGrid.innerHTML = `<div class="empty-state"><div class="empty-icon">📭</div><p>方块为空</p></div>`; return;
   }
+  precomputePinyin(blockState.current.items);
   pathsBar.innerHTML = `<span class="clickable" id="nav-back">← 方块</span> | ${h(blockState.current.name)} (${blockState.current.item_count} 个)
     <span style="margin-left:auto" class="clickable" id="nav-restore-all" style="color:var(--danger)">↩ 全部还原</span>
     <span class="clickable" style="margin-left:8px" id="nav-color-btn">🎨 改色</span>`;
@@ -146,7 +147,7 @@ export function renderBlockDetail(): void {
     });
     el.addEventListener("dblclick", () => openStoredItem(blockState.current!.id, iid));
     el.addEventListener("contextmenu", (e) => { e.preventDefault(); showItemCtxMenu(e.clientX, e.clientY, blockState.current!.id, iid); });
-    el.addEventListener("dragstart", () => { dragState.el = el; el.classList.add("dragging"); restoreZone.style.display = "block"; });
+    el.addEventListener("dragstart", (e) => { dragState.el = el; el.classList.add("dragging"); e.dataTransfer!.effectAllowed = "move"; e.dataTransfer!.setData("text/plain", iid); restoreZone.style.display = "block"; });
     el.addEventListener("dragend", () => { el.classList.remove("dragging"); dragState.el = null; restoreZone.style.display = "none"; });
     el.addEventListener("dragover", (e) => { e.preventDefault(); });
     el.addEventListener("drop", (e) => { e.preventDefault(); if (dragState.el && dragState.el !== el) handleBlockItemDrop(dragState.el, el); });

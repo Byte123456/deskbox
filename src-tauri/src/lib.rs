@@ -183,6 +183,14 @@ pub fn run() {
                 }
             });
 
+            // --- 应用保存的窗口置顶设置（跨重启生效） ---
+            let always_on_top = crate::config::AppConfig::load_opt()
+                .map(|c| c.settings.always_on_top)
+                .unwrap_or(true);
+            if let Some(window) = app.get_webview_window("main") {
+                let _ = window.set_always_on_top(always_on_top);
+            }
+
             // --- 托盘菜单 ---
             let show_item = MenuItemBuilder::with_id("show", "显示/隐藏").build(app)?;
             let settings_item = MenuItemBuilder::with_id("settings", "设置").build(app)?;
@@ -263,6 +271,7 @@ pub fn run() {
             commands::get_desktop_paths,
             commands::collect_item,
             commands::collect_all,
+            commands::collect_dropped_files,
             commands::restore_item,
             commands::restore_all,
             commands::get_block_previews,

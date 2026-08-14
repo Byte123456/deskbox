@@ -29,6 +29,12 @@
   }
 }
 
+/* 关闭动画效果：全局禁用过渡与动画 */
+html.no-anim *, html.no-anim *::before, html.no-anim *::after {
+  transition: none !important;
+  animation: none !important;
+}
+
 html, body {
   width: 100%; height: 100%; overflow: hidden;
   background: transparent;
@@ -472,4 +478,26 @@ html, body {
   --accent-glow: rgba(108, 108, 240, 0.12);
   --danger: #e04040;
   --shadow: 0 8px 32px rgba(0, 0, 0, 0.12);
+}
+
+/* === 拖拽收纳相关样式 === */
+.icon-item.dragging { opacity: 0.4; }
+.collect-drop { transition: background 0.12s, border-color 0.12s, transform 0.12s; }
+.collect-drop.drag-over {
+  background: var(--accent-glow) !important;
+  border-color: var(--accent) !important;
+  transform: scale(1.05);
+}
+.drop-overlay {
+  position: fixed; inset: 0; z-index: 500;
+  display: flex; align-items: center; justify-content: center;
+  background: rgba(124, 140, 248, 0.18);
+  border: 2px dashed var(--accent);
+  border-radius: 14px;
+  pointer-events: none;
+}
+.drop-overlay-inner {
+  font-size: 16px; font-weight: 600; color: var(--accent);
+  background: var(--glass-bg); padding: 14px 22px; border-radius: 12px;
+  border: 1px solid var(--glass-border);
 }

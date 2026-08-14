@@ -39,8 +39,16 @@ pub fn collect_item(source_path: &str) -> Result<String, String> {
     // Handle name conflicts: append _N before extension
     let dest = unique_path(&dest);
 
-    std::fs::rename(&source, &dest)
-        .map_err(|e| format!("移动失败: {e}"))?;
+    // 同盘符直接移动；跨盘符(文件)退化为复制+删除，以支持从任意位置拖入收纳
+    if std::fs::rename(source, &dest).is_ok() {
+        return Ok(dest.to_string_lossy().to_string());
+    }
+    if source.is_dir() {
+        std::fs::rename(source, &dest).map_err(|e| format!("移动失败: {e}"))?;
+    } else {
+        std::fs::copy(source, &dest).map_err(|e| format!("复制失败: {e}"))?;
+        std::fs::remove_file(source).map_err(|e| format!("删除原文件失败: {e}"))?;
+    }
 
     Ok(dest.to_string_lossy().to_string())
 }

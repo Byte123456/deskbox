@@ -25,3 +25,6 @@ desktop.ini
 # Environment
 .env
 .env.local
+
+# Release packaging staging folder
+DeskBox-v*/

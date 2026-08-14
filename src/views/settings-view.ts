@@ -2,7 +2,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { save, open } from "@tauri-apps/plugin-dialog";
 import { iconGrid, pathsBar, viewState } from "../state";
 import { showBlocksView } from "./blocks-view";
-import { h, hideLoading, toast, applyTheme } from "../utils";
+import { h, hideLoading, toast, applyTheme, applyAnimations } from "../utils";
 import type { OrganizeRule } from "../types";
 
 export async function showSettingsView(): Promise<void> {
@@ -119,6 +119,7 @@ export async function showSettingsView(): Promise<void> {
       const checked = t.checked, key = t.dataset.key!;
       const sk = key==="ontop"?"always_on_top":key;
       await invoke("save_settings", { settings: { [sk]: checked } });
+      if (key === "animations") applyAnimations(checked);
       toast("已保存 ✓");
     };
   });
