@@ -7,6 +7,7 @@
 [![Rust](https://img.shields.io/badge/Rust-1.96+-orange)](https://www.rust-lang.org/)
 [![Tauri](https://img.shields.io/badge/Tauri-v2-7c8cf8)](https://v2.tauri.app/)
 [![License](https://img.shields.io/badge/License-MIT-yellow)](LICENSE)
+[![Release](https://img.shields.io/badge/Release-v0.5.0-blue)](https://github.com/Byte123456/deskbox/releases)
 
 ---
 
@@ -14,7 +15,8 @@
 
 ### 核心操作
 - 🔍 **桌面扫描** — 读取用户桌面 & 公共桌面的所有图标，解析 `.lnk` 目标路径、参数、工作目录、图标
-- 📥 **收纳** — 右键图标 → 选择目标方块 → 文件移入本地存储；支持一键全部收纳
+- 📥 **收纳** — 右键图标 → 选择目标方块 → 文件移入本地存储；支持一键全部收纳；也支持在桌面视图**直接把图标拖到方块投放区**收纳
+- 🖱️ **拖拽收纳** — 桌面图标直接拖入方块；从系统资源管理器/桌面**拖文件进窗口**即收纳（自动复制，跨盘符亦可）
 - 🤖 **自动整理** — 完全离线读取快捷方式目标与 EXE 产品名称、文件描述、公司名称，结合本地软件指纹库和多字段评分分类；只有高置信度项目会自动移动
 - 🧠 **纠正记忆** — 手动选择方块或跨方块移动后，以软件身份 SHA-256 ID 永久记住选择；快捷方式改名后仍然有效
 - 🛟 **不确定不移动** — 分数不足或两个分类接近时保留在桌面，并显示建议分类、备选分类及判断依据
@@ -103,7 +105,7 @@ cd src-tauri && cargo build --release  # 后端 → target/release/deskbox.exe (
 
 ### 收纳流程
 1. 热键呼出 → **🖥 桌面** 视图
-2. 右键图标 → 📥 收纳 → 选方块
+2. 右键图标 → 📥 收纳 → 选方块；**或直接把图标拖到顶部方块投放区**
 3. 或点 **🤖 自动整理** 一键智能分类
 
 ### 使用收纳图标
